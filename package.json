@@ -1,0 +1,22 @@
+{
+  "name": "useful-subtitle",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Amazon Prime Video 用の英語学習字幕拡張。字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説する Chrome 拡張機能（自分専用）。",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.43",
+    "@types/node": "^25.9.3",
+    "esbuild": "^0.28.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Useful Subtitle 設定</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans',
+          'Noto Sans JP', sans-serif;
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px;
+        line-height: 1.6;
+      }
+      h1 {
+        font-size: 1.3rem;
+        margin-bottom: 4px;
+      }
+      .lead {
+        color: #888;
+        margin-top: 0;
+      }
+      .field {
+        margin: 18px 0;
+      }
+      label {
+        font-weight: 600;
+        display: block;
+        margin-bottom: 4px;
+      }
+      input[type='password'],
+      input[type='text'],
+      select {
+        width: 100%;
+        padding: 8px;
+        box-sizing: border-box;
+        font-size: 1rem;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .row label {
+        margin: 0;
+        font-weight: 500;
+      }
+      .row input[type='checkbox'] {
+        width: 18px;
+        height: 18px;
+      }
+      .hint {
+        color: #888;
+        font-size: 0.85rem;
+        margin-top: 4px;
+      }
+      .actions {
+        margin-top: 24px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      button {
+        padding: 8px 16px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      .status {
+        font-size: 0.9rem;
+      }
+      .status.ok {
+        color: #2e7d32;
+      }
+      .status.err {
+        color: #c62828;
+      }
+      a {
+        color: #1976d2;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Useful Subtitle 設定</h1>
+    <p class="lead">
+      Prime Video の字幕の単語・フレーズをクリックすると Claude が日本語で解説します。
+    </p>
+
+    <div class="field">
+      <label for="apiKey">Anthropic API キー</label>
+      <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      <div class="hint">
+        <a
+          href="https://console.anthropic.com/settings/keys"
+          target="_blank"
+          rel="noopener"
+          >console.anthropic.com</a
+        >
+        で取得できます。キーはこのブラウザ内にのみ保存され、AI への問い合わせ以外で外部に送信されることはありません。
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="model">モデル</label>
+      <input id="model" type="text" />
+      <div class="hint">既定: claude-haiku-4-5-20251001（高速・低コスト）</div>
+    </div>
+
+    <div class="field">
+      <label for="lang">解説の言語</label>
+      <select id="lang">
+        <option value="ja">日本語</option>
+        <option value="en">英語（英英）</option>
+        <option value="both">日本語＋英語</option>
+      </select>
+    </div>
+
+    <div class="field row">
+      <input id="dualSubtitle" type="checkbox" />
+      <label for="dualSubtitle">字幕一文の日本語訳も併記（デュアル字幕）</label>
+    </div>
+
+    <div class="field row">
+      <input id="autoPause" type="checkbox" />
+      <label for="autoPause">単語クリックで動画を自動一時停止</label>
+    </div>
+
+    <div class="field row">
+      <input id="enabled" type="checkbox" />
+      <label for="enabled">拡張機能を有効にする</label>
+    </div>
+
+    <div class="actions">
+      <button id="test" type="button">接続テスト</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>
