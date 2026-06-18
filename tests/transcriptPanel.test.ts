@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTranscriptPanel, type TranscriptPanel } from '../src/content/transcriptPanel';
+import { createTranscriptPanel, nextFollowState, type TranscriptPanel } from '../src/content/transcriptPanel';
 
 const HOST_ID = 'useful-subtitle-transcript';
 
@@ -77,5 +77,109 @@ describe('createTranscriptPanel — 重なり順（z-index）', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     const host = document.getElementById(HOST_ID);
     expect(host?.style.zIndex).toBe('2147483000');
+  });
+});
+
+describe('createTranscriptPanel — 現在再生行のハイライト', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+  });
+
+  /** shadow DOM 内の行要素を取得する。 */
+  function rowsOf(): HTMLDivElement[] {
+    const host = document.getElementById(HOST_ID);
+    return Array.from(host!.shadowRoot!.querySelectorAll<HTMLDivElement>('.row'));
+  }
+
+  /** videoTime の配列から行をまとめて追加する。 */
+  function appendRows(p: TranscriptPanel, times: number[]): void {
+    times.forEach((t, i) => p.append({ id: i + 1, english: `line ${i + 1}`, videoTime: t }));
+  }
+
+  /** active が付いている行のインデックス（無ければ -1）。 */
+  function activeIndex(): number {
+    return rowsOf().findIndex((r) => r.classList.contains('active'));
+  }
+
+  it('最初の行の videoTime より前の時刻ではどの行も active にならない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    appendRows(panel, [10, 20, 30]);
+    panel.updateActiveByTime(5);
+    expect(activeIndex()).toBe(-1);
+  });
+
+  it('行と行の間の時刻では「videoTime が現在時刻以下で最大の行」が active になる', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    appendRows(panel, [10, 20, 30]);
+    panel.updateActiveByTime(25);
+    expect(activeIndex()).toBe(1);
+  });
+
+  it('ちょうど境界の時刻ではその行が active になる', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    appendRows(panel, [10, 20, 30]);
+    panel.updateActiveByTime(20);
+    expect(activeIndex()).toBe(1);
+  });
+
+  it('最後の行以降の時刻では最後の行が active になる', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    appendRows(panel, [10, 20, 30]);
+    panel.updateActiveByTime(100);
+    expect(activeIndex()).toBe(2);
+  });
+
+  it('巻き戻すと active が前の行へ戻り、active は常に1行だけ', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    appendRows(panel, [10, 20, 30]);
+    panel.updateActiveByTime(100);
+    expect(activeIndex()).toBe(2);
+
+    panel.updateActiveByTime(15);
+    expect(activeIndex()).toBe(0);
+    expect(rowsOf().filter((r) => r.classList.contains('active'))).toHaveLength(1);
+  });
+
+  it('履歴が空でも updateActiveByTime は何もせず例外を出さない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    expect(() => panel!.updateActiveByTime(50)).not.toThrow();
+    expect(activeIndex()).toBe(-1);
+  });
+});
+
+describe('nextFollowState — 追従可否の判定', () => {
+  it('プログラム由来のスクロールは無視し、直前の追従状態を保つ', () => {
+    expect(
+      nextFollowState({ wasFollowing: true, isProgrammatic: true, activeRowVisible: false, nearBottom: false }),
+    ).toBe(true);
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: true, activeRowVisible: true, nearBottom: true }),
+    ).toBe(false);
+  });
+
+  it('手動スクロール時はアクティブ行が見えていれば追従を再開する', () => {
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: false, activeRowVisible: true, nearBottom: false }),
+    ).toBe(true);
+  });
+
+  it('手動スクロール時は最下部付近なら追従を再開する', () => {
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: false, activeRowVisible: false, nearBottom: true }),
+    ).toBe(true);
+  });
+
+  it('手動スクロールでアクティブ行が見えず最下部でもなければ追従を止める', () => {
+    expect(
+      nextFollowState({ wasFollowing: true, isProgrammatic: false, activeRowVisible: false, nearBottom: false }),
+    ).toBe(false);
   });
 });

@@ -49,6 +49,12 @@ class FakeStorageArea {
   }
 }
 
+// jsdom はレイアウトを持たないため Element.scrollIntoView を実装しない。履歴パネルの
+// 追従スクロールがテスト中に例外を出さないよう、no-op として補う。
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 const local = new FakeStorageArea();
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
