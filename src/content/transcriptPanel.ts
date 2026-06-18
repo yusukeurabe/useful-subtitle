@@ -53,7 +53,9 @@ const STYLES = `
 export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptPanel {
   const host = document.createElement('div');
   host.id = 'useful-subtitle-transcript';
-  host.style.cssText = 'position:fixed;inset:0 0 0 auto;pointer-events:none;';
+  // 外側ホストにも最前面の z-index を置く。これが無いと再生本編で Prime Video の
+  // プレイヤー（全面・高 z-index）に重なられ、履歴パネルが裏へ隠れてしまう。
+  host.style.cssText = 'position:fixed;inset:0 0 0 auto;pointer-events:none;z-index:2147483000;';
   const shadow = host.attachShadow({ mode: 'open' });
 
   const style = document.createElement('style');
@@ -114,11 +116,23 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (ja) ja.textContent = japanese;
   }
 
+  // --- マウント & 全画面追従 ---
+  // Prime Video は全画面時に「全画面要素とその子孫」しか描画しないため、
+  // body 直下のままだと履歴パネルが見えなくなる。overlay と同じく全画面要素の
+  // 中へ入れ直し、全画面の出入りに追従する。
+  const attach = (): void => {
+    const target = document.fullscreenElement ?? document.body;
+    if (host.parentElement !== target) target.appendChild(host);
+  };
+  const onFullscreenChange = (): void => attach();
+
   function destroy(): void {
+    document.removeEventListener('fullscreenchange', onFullscreenChange, true);
     host.remove();
     jaById.clear();
   }
 
-  document.body.appendChild(host);
+  document.addEventListener('fullscreenchange', onFullscreenChange, true);
+  attach();
   return { append, setTranslation, destroy };
 }
