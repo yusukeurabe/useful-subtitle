@@ -43,6 +43,15 @@ async function main(): Promise<void> {
     }
   }
 
+  if (panel) {
+    // 再生位置の変化を監視して履歴のアクティブ行を更新する。メディアイベントは
+    // バブリングしないため document のキャプチャ段で受ける（広告での video 差し替えにも耐える）。
+    const syncActiveRow = (): void => panel.updateActiveByTime(findVideo()?.currentTime ?? 0);
+    for (const ev of ['timeupdate', 'seeked'] as const) {
+      document.addEventListener(ev, syncActiveRow, true);
+    }
+  }
+
   // 直近の字幕。非同期の翻訳結果が古い行を上書きしないよう照合に使う。
   let currentText = '';
 
@@ -60,7 +69,11 @@ async function main(): Promise<void> {
     // 画面上の字幕・翻訳（overlay）は再視聴中も従来どおり表示する。
     const videoTime = findVideo()?.currentTime ?? 0;
     const recordedId = panel && recorder.shouldRecord(videoTime) ? ++entryId : null;
-    if (recordedId !== null) panel?.append({ id: recordedId, english: text, videoTime });
+    if (recordedId !== null) {
+      panel?.append({ id: recordedId, english: text, videoTime });
+      // 追加した行を即座にアクティブにする（timeupdate を待たずに反映）。
+      panel?.updateActiveByTime(videoTime);
+    }
 
     if (!settings.dualSubtitle) {
       overlay.setTranslation({ kind: 'none' });
