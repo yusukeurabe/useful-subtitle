@@ -3,6 +3,7 @@ import type { Settings } from '../shared/types';
 import { pauseVideo } from './videoControl';
 import { sendRequest } from '../shared/messages';
 import { loadWordInfo } from './word';
+import { parseExplanation } from '../shared/explanation';
 
 /**
  * 単語/フレーズの意味引きを実行する。
@@ -21,6 +22,10 @@ export async function runLookup(
   // 発音記号・音源URLの先読み（意味取得と独立・並行）。
   void loadWordInfo(overlay, selection);
   const res = await sendRequest({ type: 'explainSelection', selection, context: sentence });
-  if (res.ok) overlay.setPopupMeaning(res.text);
-  else overlay.setPopupError(res.error);
+  if (res.ok) {
+    const { gloss, explanation } = parseExplanation(res.text);
+    overlay.setPopupMeaning(explanation, gloss);
+  } else {
+    overlay.setPopupError(res.error);
+  }
 }

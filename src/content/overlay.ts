@@ -26,7 +26,7 @@ export interface Overlay {
   clearLine(): void;
   setTranslation(state: TranslationState): void;
   openPopup(anchor: DOMRect, selection: string): void;
-  setPopupMeaning(text: string): void;
+  setPopupMeaning(text: string, gloss: string | null): void;
   setPopupError(message: string): void;
   setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
   hidePopup(): void;
@@ -58,7 +58,9 @@ const STYLES = `
   font-size: 14px; line-height: 1.6; pointer-events: auto;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
-.popup .sel { font-weight: 700; color: #8ab4ff; margin-bottom: 4px; }
+.popup .sel { margin-bottom: 4px; }
+.popup .sel .sel-word { font-weight: 700; color: #8ab4ff; }
+.popup .sel .gloss { margin-left: 8px; color: #d8d8d8; font-weight: 400; font-size: 13px; }
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
@@ -157,6 +159,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let popup: HTMLDivElement | null = null;
   let popupBody: HTMLDivElement | null = null;
   let popupIpa: HTMLDivElement | null = null;
+  let popupGloss: HTMLSpanElement | null = null;
   let popupAnchor: DOMRect | null = null;
   let popupSelection = '';
   let popupAudioUrl: string | null = null;
@@ -299,7 +302,13 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
     const sel = document.createElement('div');
     sel.className = 'sel';
-    sel.textContent = selection;
+    const selWord = document.createElement('span');
+    selWord.className = 'sel-word';
+    selWord.textContent = selection;
+    popupGloss = document.createElement('span');
+    popupGloss.className = 'gloss';
+    popupGloss.style.display = 'none';
+    sel.append(selWord, popupGloss);
     p.appendChild(sel);
 
     popupIpa = document.createElement('div');
@@ -312,7 +321,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
     const audioBtn = document.createElement('button');
     audioBtn.className = 'act-btn';
-    audioBtn.textContent = '🔊 発音';
+    audioBtn.textContent = '🔊';
     audioBtn.title = '発音を再生';
     audioBtn.addEventListener('click', () => callbacks.onPlayAudio(popupSelection, popupAudioUrl));
     actions.appendChild(audioBtn);
@@ -336,10 +345,20 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     positionPopup(anchor);
   }
 
-  function setPopupMeaning(text: string): void {
-    if (!popupBody) return;
-    popupBody.className = 'body';
-    popupBody.textContent = text;
+  function setPopupMeaning(text: string, gloss: string | null): void {
+    if (popupBody) {
+      popupBody.className = 'body';
+      popupBody.textContent = text;
+    }
+    if (popupGloss) {
+      if (gloss) {
+        popupGloss.textContent = gloss;
+        popupGloss.style.display = '';
+      } else {
+        popupGloss.textContent = '';
+        popupGloss.style.display = 'none';
+      }
+    }
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
@@ -370,6 +389,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     }
     popupBody = null;
     popupIpa = null;
+    popupGloss = null;
     popupAnchor = null;
     popupAudioUrl = null;
     clearHighlight();
