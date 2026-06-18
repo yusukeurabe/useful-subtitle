@@ -13,6 +13,7 @@ const entryPoints = {
   content: resolve(root, 'src/content/index.ts'),
   background: resolve(root, 'src/background/index.ts'),
   options: resolve(root, 'src/options/options.ts'),
+  offscreen: resolve(root, 'src/offscreen/index.ts'),
 };
 
 /** Copy non-bundled assets (manifest, options HTML, icons) into dist/. */
@@ -21,6 +22,10 @@ async function copyStatic() {
   await copyFile(
     resolve(root, 'src/options/options.html'),
     resolve(outdir, 'options.html'),
+  );
+  await copyFile(
+    resolve(root, 'src/offscreen/offscreen.html'),
+    resolve(outdir, 'offscreen.html'),
   );
   if (existsSync(resolve(root, 'icons'))) {
     await cp(resolve(root, 'icons'), resolve(outdir, 'icons'), { recursive: true });

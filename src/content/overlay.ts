@@ -1,9 +1,12 @@
 import type { Token } from '../shared/tokenize';
 import { CAPTION_TEXT_SELECTORS } from '../shared/selectors';
+import { cambridgeUrl } from '../shared/dictionary';
 
 export interface OverlayCallbacks {
   /** 単語クリック or フレーズ選択が確定したとき。anchor は対象語のビューポート座標。 */
   onLookup: (selection: string, sentence: string, anchor: DOMRect) => void;
+  /** ポップアップの🔊が押されたとき。audioUrl は先読み済みネイティブ音源（無ければ null）。 */
+  onPlayAudio: (selection: string, audioUrl: string | null) => void;
 }
 
 export interface OverlayOptions {
@@ -22,9 +25,10 @@ export interface Overlay {
   renderLine(sentence: string, tokens: Token[]): void;
   clearLine(): void;
   setTranslation(state: TranslationState): void;
-  showPopupLoading(anchor: DOMRect, selection: string): void;
-  showPopupResult(anchor: DOMRect, selection: string, text: string): void;
-  showPopupError(anchor: DOMRect, message: string): void;
+  openPopup(anchor: DOMRect, selection: string): void;
+  setPopupMeaning(text: string, gloss: string | null): void;
+  setPopupError(message: string): void;
+  setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
   hidePopup(): void;
   destroy(): void;
 }
@@ -54,7 +58,9 @@ const STYLES = `
   font-size: 14px; line-height: 1.6; pointer-events: auto;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
-.popup .sel { font-weight: 700; color: #8ab4ff; margin-bottom: 4px; }
+.popup .sel { margin-bottom: 4px; }
+.popup .sel .sel-word { font-weight: 700; color: #8ab4ff; }
+.popup .sel .gloss { margin-left: 8px; color: #d8d8d8; font-weight: 400; font-size: 13px; }
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
@@ -62,6 +68,23 @@ const STYLES = `
   position: absolute; top: 6px; right: 8px; cursor: pointer; color: #aaa;
   font-size: 16px; line-height: 1;
 }
+.popup .ipa {
+  color: #b9c4d6; font-size: 13px; margin: 0 0 8px;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+.popup .actions { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.popup .act-btn {
+  border: 1px solid #3a3a3a; background: #2a2a2a; color: #f3f3f3;
+  border-radius: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+  font-family: inherit; line-height: 1.2;
+}
+.popup .act-btn:hover { background: #3a3a3a; }
+.popup .act-btn:active { background: #4a4a4a; }
+.popup .act-link {
+  color: #8ab4ff; text-decoration: none; font-size: 13px; line-height: 1.2;
+  border: 1px solid #2f3b52; border-radius: 6px; padding: 4px 10px;
+}
+.popup .act-link:hover { background: rgba(86, 156, 255, 0.15); }
 .pos-controls {
   position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
   display: flex; flex-direction: column; gap: 4px;
@@ -134,6 +157,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   hideStyle.textContent = `${CAPTION_TEXT_SELECTORS.join(', ')} { visibility: hidden !important; }`;
 
   let popup: HTMLDivElement | null = null;
+  let popupBody: HTMLDivElement | null = null;
+  let popupIpa: HTMLDivElement | null = null;
+  let popupGloss: HTMLSpanElement | null = null;
+  let popupAnchor: DOMRect | null = null;
+  let popupSelection = '';
+  let popupAudioUrl: string | null = null;
   let currentSentence = '';
   let wordRefs: WordRef[] = [];
   let dragStart = -1;
@@ -244,26 +273,6 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     return popup;
   };
 
-  const buildPopupShell = (selection: string): HTMLDivElement => {
-    const p = ensurePopup();
-    p.replaceChildren();
-    const close = document.createElement('div');
-    close.className = 'close';
-    close.textContent = '×';
-    close.addEventListener('click', hidePopup);
-    p.appendChild(close);
-    if (selection) {
-      const sel = document.createElement('div');
-      sel.className = 'sel';
-      sel.textContent = selection;
-      p.appendChild(sel);
-    }
-    const body = document.createElement('div');
-    body.className = 'body';
-    p.appendChild(body);
-    return body;
-  };
-
   const positionPopup = (anchor: DOMRect): void => {
     if (!popup) return;
     const margin = 8;
@@ -277,22 +286,100 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popup.style.top = `${top}px`;
   };
 
-  function showPopupLoading(anchor: DOMRect, selection: string): void {
-    const body = buildPopupShell(selection);
-    body.className = 'body loading';
-    body.textContent = '考え中…';
+  // ヘッダ（×・選択語・IPA・操作列）は安定して残り、本文だけ「考え中…」→結果/エラーへ更新する。
+  function openPopup(anchor: DOMRect, selection: string): void {
+    const p = ensurePopup();
+    p.replaceChildren();
+    popupAnchor = anchor;
+    popupSelection = selection;
+    popupAudioUrl = null;
+
+    const close = document.createElement('div');
+    close.className = 'close';
+    close.textContent = '×';
+    close.addEventListener('click', hidePopup);
+    p.appendChild(close);
+
+    const sel = document.createElement('div');
+    sel.className = 'sel';
+    const selWord = document.createElement('span');
+    selWord.className = 'sel-word';
+    selWord.textContent = selection;
+    popupGloss = document.createElement('span');
+    popupGloss.className = 'gloss';
+    popupGloss.style.display = 'none';
+    sel.append(selWord, popupGloss);
+    p.appendChild(sel);
+
+    popupIpa = document.createElement('div');
+    popupIpa.className = 'ipa';
+    popupIpa.style.display = 'none';
+    p.appendChild(popupIpa);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const audioBtn = document.createElement('button');
+    audioBtn.className = 'act-btn';
+    audioBtn.textContent = '🔊';
+    audioBtn.title = '発音を再生';
+    audioBtn.addEventListener('click', () => callbacks.onPlayAudio(popupSelection, popupAudioUrl));
+    actions.appendChild(audioBtn);
+
+    const link = document.createElement('a');
+    link.className = 'act-link';
+    link.textContent = 'Cambridge ↗';
+    link.title = 'Cambridge 英英辞典で開く';
+    link.href = cambridgeUrl(selection);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    actions.appendChild(link);
+
+    p.appendChild(actions);
+
+    popupBody = document.createElement('div');
+    popupBody.className = 'body loading';
+    popupBody.textContent = '考え中…';
+    p.appendChild(popupBody);
+
     positionPopup(anchor);
   }
-  function showPopupResult(anchor: DOMRect, selection: string, text: string): void {
-    const body = buildPopupShell(selection);
-    body.textContent = text;
-    positionPopup(anchor);
+
+  function setPopupMeaning(text: string, gloss: string | null): void {
+    if (popupBody) {
+      popupBody.className = 'body';
+      popupBody.textContent = text;
+    }
+    if (popupGloss) {
+      if (gloss) {
+        popupGloss.textContent = gloss;
+        popupGloss.style.display = '';
+      } else {
+        popupGloss.textContent = '';
+        popupGloss.style.display = 'none';
+      }
+    }
+    if (popupAnchor) positionPopup(popupAnchor);
   }
-  function showPopupError(anchor: DOMRect, message: string): void {
-    const body = buildPopupShell('');
-    body.className = 'body err';
-    body.textContent = message;
-    positionPopup(anchor);
+
+  function setPopupError(message: string): void {
+    if (!popupBody) return;
+    popupBody.className = 'body err';
+    popupBody.textContent = message;
+    if (popupAnchor) positionPopup(popupAnchor);
+  }
+
+  function setPopupWordInfo(ipa: string | null, audioUrl: string | null): void {
+    popupAudioUrl = audioUrl;
+    if (!popupIpa) return;
+    if (ipa) {
+      popupIpa.textContent = ipa;
+      popupIpa.style.display = '';
+    } else {
+      popupIpa.textContent = '';
+      popupIpa.style.display = 'none';
+    }
+    if (popupAnchor) positionPopup(popupAnchor);
   }
 
   function hidePopup(): void {
@@ -300,6 +387,11 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
       popup.remove();
       popup = null;
     }
+    popupBody = null;
+    popupIpa = null;
+    popupGloss = null;
+    popupAnchor = null;
+    popupAudioUrl = null;
     clearHighlight();
   }
 
@@ -332,9 +424,10 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     renderLine,
     clearLine,
     setTranslation,
-    showPopupLoading,
-    showPopupResult,
-    showPopupError,
+    openPopup,
+    setPopupMeaning,
+    setPopupError,
+    setPopupWordInfo,
     hidePopup,
     destroy,
   };

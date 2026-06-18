@@ -3,8 +3,11 @@
   "name": "Useful Subtitle — Prime Video 英語学習",
   "version": "0.1.0",
   "description": "Prime Video の字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説します。",
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.anthropic.com/*"],
+  "permissions": ["storage", "offscreen"],
+  "host_permissions": [
+    "https://api.anthropic.com/*",
+    "https://api.dictionaryapi.dev/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },

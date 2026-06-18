@@ -6,6 +6,7 @@ import { createOverlay, type Overlay } from './overlay';
 import { createTranscriptPanel, type TranscriptPanel } from './transcriptPanel';
 import { createTranscriptRecorder } from './transcriptRecorder';
 import { runLookup } from './interaction';
+import { playPronunciation } from './audio';
 import { findVideo, seekVideo } from './videoControl';
 import { sendRequest } from '../shared/messages';
 
@@ -18,6 +19,7 @@ async function main(): Promise<void> {
     {
       onLookup: (selection, sentence, anchor) =>
         void runLookup(overlay, settings, selection, sentence, anchor),
+      onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
     },
     {
       bottomPercent: settings.subtitleBottomPercent,

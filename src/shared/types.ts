@@ -38,10 +38,20 @@ export interface ExplainSelectionRequest {
 export interface PingRequest {
   type: 'ping';
 }
+export interface LookupWordRequest {
+  type: 'lookupWord';
+  text: string;
+}
+export interface PlayAudioRequest {
+  type: 'playAudio';
+  url: string;
+}
 export type RequestMessage =
   | TranslateLineRequest
   | ExplainSelectionRequest
-  | PingRequest;
+  | PingRequest
+  | LookupWordRequest
+  | PlayAudioRequest;
 
 /** service worker → content script のレスポンス。 */
 export type ErrorCode = 'NO_API_KEY' | 'AUTH' | 'RATE_LIMIT' | 'NETWORK' | 'UNKNOWN';
@@ -56,3 +66,17 @@ export interface ErrorResponse {
   error: string;
 }
 export type ResponseMessage = SuccessResponse | ErrorResponse;
+
+/** lookupWord の応答（APIキー不要）。発音記号と音源URL。 */
+export interface WordInfoResponse {
+  ok: true;
+  kind: 'word';
+  ipa: string | null;
+  audioUrl: string | null;
+}
+/** playAudio の応答。played:true=offscreen でネイティブ音源を再生開始。 */
+export interface AudioResponse {
+  ok: true;
+  kind: 'audio';
+  played: boolean;
+}

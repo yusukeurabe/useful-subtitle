@@ -1,7 +1,14 @@
 import { buildTranslationPrompt, buildExplanationPrompt } from '../shared/prompts';
 import { makeCacheKey } from './cache';
 import { AiError, type AnthropicParams } from './aiClient';
-import type { RequestMessage, ResponseMessage, Settings } from '../shared/types';
+import { normalizeWord, isSingleWord, type WordInfo } from '../shared/dictionary';
+import type {
+  RequestMessage,
+  ResponseMessage,
+  WordInfoResponse,
+  AudioResponse,
+  Settings,
+} from '../shared/types';
 
 /** handleRequest が依存する外部境界（設定・キャッシュ・AI 呼び出し）。テストで差し替え可能。 */
 export interface HandlerDeps {
@@ -9,6 +16,10 @@ export interface HandlerDeps {
   getCached: (key: string) => Promise<string | undefined>;
   setCached: (key: string, value: string) => Promise<void>;
   callAi: (params: AnthropicParams) => Promise<string>;
+  /** 単語の発音情報（IPA＋音源URL）を取得する（辞書API）。 */
+  getWordInfo: (word: string) => Promise<WordInfo>;
+  /** 音源URLを offscreen で再生する。 */
+  playOffscreenAudio: (url: string) => Promise<void>;
 }
 
 /**
@@ -18,7 +29,29 @@ export interface HandlerDeps {
 export async function handleRequest(
   req: RequestMessage,
   deps: HandlerDeps,
-): Promise<ResponseMessage> {
+): Promise<ResponseMessage | WordInfoResponse | AudioResponse> {
+  // 辞書情報・音声再生は APIキー不要。最初に分岐する。
+  if (req.type === 'lookupWord') {
+    if (!isSingleWord(req.text)) {
+      return { ok: true, kind: 'word', ipa: null, audioUrl: null };
+    }
+    try {
+      const info = await deps.getWordInfo(normalizeWord(req.text));
+      return { ok: true, kind: 'word', ipa: info.ipa, audioUrl: info.audioUrl };
+    } catch {
+      return { ok: true, kind: 'word', ipa: null, audioUrl: null };
+    }
+  }
+  if (req.type === 'playAudio') {
+    if (!req.url) return { ok: true, kind: 'audio', played: false };
+    try {
+      await deps.playOffscreenAudio(req.url);
+      return { ok: true, kind: 'audio', played: true };
+    } catch {
+      return { ok: true, kind: 'audio', played: false };
+    }
+  }
+
   const settings = await deps.getSettings();
   if (!settings.apiKey) {
     return {
