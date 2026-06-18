@@ -15,6 +15,8 @@ async function init(): Promise<void> {
   const dualSubtitle = el<HTMLInputElement>('dualSubtitle');
   const autoPause = el<HTMLInputElement>('autoPause');
   const enabled = el<HTMLInputElement>('enabled');
+  const truecaseSubtitle = el<HTMLInputElement>('truecaseSubtitle');
+  const showTranscriptPanel = el<HTMLInputElement>('showTranscriptPanel');
   const testBtn = el<HTMLButtonElement>('test');
   const status = el<HTMLSpanElement>('status');
 
@@ -25,6 +27,8 @@ async function init(): Promise<void> {
   dualSubtitle.checked = s.dualSubtitle;
   autoPause.checked = s.autoPauseOnClick;
   enabled.checked = s.enabled;
+  truecaseSubtitle.checked = s.truecaseSubtitle;
+  showTranscriptPanel.checked = s.showTranscriptPanel;
 
   const setStatus = (msg: string, kind: '' | 'ok' | 'err' = ''): void => {
     status.textContent = msg;
@@ -39,9 +43,14 @@ async function init(): Promise<void> {
       dualSubtitle: dualSubtitle.checked,
       autoPauseOnClick: autoPause.checked,
       enabled: enabled.checked,
+      truecaseSubtitle: truecaseSubtitle.checked,
+      showTranscriptPanel: showTranscriptPanel.checked,
     });
 
-  for (const field of [apiKey, model, lang, dualSubtitle, autoPause, enabled]) {
+  for (const field of [
+    apiKey, model, lang, dualSubtitle, autoPause, enabled,
+    truecaseSubtitle, showTranscriptPanel,
+  ]) {
     field.addEventListener('change', () => {
       void persist().then(() => setStatus('保存しました', 'ok'));
     });

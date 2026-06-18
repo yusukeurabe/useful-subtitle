@@ -16,3 +16,9 @@ export function playVideo(): void {
   const v = findVideo();
   if (v && v.paused) void v.play().catch(() => undefined);
 }
+
+/** 指定秒へシークする（負値は 0 に丸める）。 */
+export function seekVideo(seconds: number): void {
+  const v = findVideo();
+  if (v) v.currentTime = Math.max(0, seconds);
+}

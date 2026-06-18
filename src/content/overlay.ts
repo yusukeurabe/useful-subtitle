@@ -6,6 +6,13 @@ export interface OverlayCallbacks {
   onLookup: (selection: string, sentence: string, anchor: DOMRect) => void;
 }
 
+export interface OverlayOptions {
+  /** 字幕の初期縦位置（画面下からの％）。 */
+  bottomPercent: number;
+  /** ユーザーが位置を変えたとき（永続化用）。 */
+  onBottomChange: (percent: number) => void;
+}
+
 export type TranslationState =
   | { kind: 'loading' }
   | { kind: 'text'; text: string }
@@ -24,7 +31,7 @@ export interface Overlay {
 
 const STYLES = `
 .subtitle {
-  position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+  position: fixed; left: 50%; transform: translateX(-50%);
   max-width: 80vw; text-align: center; pointer-events: auto; user-select: none;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
@@ -55,6 +62,18 @@ const STYLES = `
   position: absolute; top: 6px; right: 8px; cursor: pointer; color: #aaa;
   font-size: 16px; line-height: 1;
 }
+.pos-controls {
+  position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 4px;
+  opacity: 0.2; transition: opacity 0.2s;
+}
+.subtitle:hover .pos-controls { opacity: 0.9; }
+.pos-btn {
+  width: 32px; height: 32px; border-radius: 6px; border: none;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 13px;
+  cursor: pointer; pointer-events: auto; line-height: 1;
+}
+.pos-btn:hover { background: rgba(86, 156, 255, 0.85); }
 `;
 
 interface WordRef {
@@ -62,7 +81,7 @@ interface WordRef {
   text: string;
 }
 
-export function createOverlay(callbacks: OverlayCallbacks): Overlay {
+export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptions): Overlay {
   const host = document.createElement('div');
   host.id = 'useful-subtitle-overlay';
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;';
@@ -79,6 +98,35 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
   const translation = document.createElement('div');
   translation.className = 'translation';
   subtitle.append(original, translation);
+
+  let bottomPercent = options.bottomPercent;
+  const applyBottom = (): void => {
+    subtitle.style.bottom = `${bottomPercent}%`;
+  };
+  const STEP = 6;
+  const MIN = 2;
+  const MAX = 85;
+  const move = (delta: number): void => {
+    bottomPercent = Math.max(MIN, Math.min(MAX, bottomPercent + delta));
+    applyBottom();
+    options.onBottomChange(bottomPercent);
+  };
+  const posControls = document.createElement('div');
+  posControls.className = 'pos-controls';
+  const upBtn = document.createElement('button');
+  upBtn.className = 'pos-btn';
+  upBtn.textContent = '▲';
+  upBtn.title = '字幕を上へ';
+  upBtn.addEventListener('click', () => move(STEP));
+  const downBtn = document.createElement('button');
+  downBtn.className = 'pos-btn';
+  downBtn.textContent = '▼';
+  downBtn.title = '字幕を下へ';
+  downBtn.addEventListener('click', () => move(-STEP));
+  posControls.append(upBtn, downBtn);
+  subtitle.appendChild(posControls);
+  applyBottom();
+
   shadow.appendChild(subtitle);
 
   // ネイティブ字幕を隠す（テキストは DOM に残るので読み取りは可能）。
@@ -124,6 +172,16 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
     if (dragStart >= 0 && dragEnd >= 0) finishSelection(dragStart, dragEnd);
   };
 
+  const onMouseMove = (e: MouseEvent): void => {
+    if (!dragging) return;
+    const node = shadow.elementFromPoint(e.clientX, e.clientY);
+    if (!node) return;
+    const idx = wordRefs.findIndex((w) => w.el === node);
+    if (idx < 0) return;
+    dragEnd = idx;
+    highlight(dragStart, dragEnd);
+  };
+
   const onDocMouseDown = (e: MouseEvent): void => {
     // シャドウ内（単語/ポップアップ）クリックは host にリターゲットされる。それ以外なら閉じる。
     if (popup && e.target !== host) hidePopup();
@@ -152,11 +210,6 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
         dragStart = index;
         dragEnd = index;
         highlight(index, index);
-      });
-      span.addEventListener('mouseenter', () => {
-        if (!dragging) return;
-        dragEnd = index;
-        highlight(dragStart, dragEnd);
       });
       original.appendChild(span);
       wordRefs.push({ el: span, text: t.text });
@@ -259,6 +312,7 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
 
   document.head.appendChild(hideStyle);
   document.addEventListener('mouseup', onMouseUp, true);
+  document.addEventListener('mousemove', onMouseMove, true);
   document.addEventListener('mousedown', onDocMouseDown, true);
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
@@ -266,6 +320,7 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
 
   function destroy(): void {
     document.removeEventListener('mouseup', onMouseUp, true);
+    document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
     document.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('fullscreenchange', onFullscreenChange, true);

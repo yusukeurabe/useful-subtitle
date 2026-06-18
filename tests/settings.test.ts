@@ -29,4 +29,10 @@ describe('settings', () => {
     expect(s.model).toBe(DEFAULT_SETTINGS.model);
     expect(s.explanationLanguage).toBe('ja');
   });
+
+  it('defaults to truecasing on, subtitle at 12% and transcript panel on', () => {
+    expect(DEFAULT_SETTINGS.truecaseSubtitle).toBe(true);
+    expect(DEFAULT_SETTINGS.subtitleBottomPercent).toBe(12);
+    expect(DEFAULT_SETTINGS.showTranscriptPanel).toBe(true);
+  });
 });
