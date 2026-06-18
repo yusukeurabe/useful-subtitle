@@ -11,6 +11,9 @@ export const DEFAULT_SETTINGS: Settings = {
   dualSubtitle: true,
   autoPauseOnClick: true,
   enabled: true,
+  truecaseSubtitle: true,
+  subtitleBottomPercent: 12,
+  showTranscriptPanel: true,
 };
 
 /** 保存済み設定を読み込み、欠けている項目は既定値で補完して返す。 */
