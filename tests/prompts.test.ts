@@ -34,4 +34,16 @@ describe('buildExplanationPrompt', () => {
     const { system } = buildExplanationPrompt('word', 'a sentence', 'en');
     expect(system).toMatch(/英語|English/i);
   });
+
+  it('asks for the structured 訳/説明 format', () => {
+    const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
+    expect(system).toContain('訳:');
+    expect(system).toContain('説明:');
+  });
+
+  it('asks for up to 3 general translations separated by ・', () => {
+    const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
+    expect(system).toMatch(/3つ/);
+    expect(system).toContain('・');
+  });
 });
