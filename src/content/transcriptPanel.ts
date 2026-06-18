@@ -20,6 +20,21 @@ export interface TranscriptPanel {
   destroy(): void;
 }
 
+/**
+ * 追従スクロールを続けるかどうかを決める純粋関数。
+ * - プログラム由来のスクロール（こちらが scrollIntoView した結果）は無視し、状態を保つ。
+ * - 手動スクロール時は、アクティブ行が可視範囲にある／最下部付近にあるときだけ追従を再開する。
+ */
+export function nextFollowState(opts: {
+  wasFollowing: boolean;
+  isProgrammatic: boolean;
+  activeRowVisible: boolean;
+  nearBottom: boolean;
+}): boolean {
+  if (opts.isProgrammatic) return opts.wasFollowing;
+  return opts.activeRowVisible || opts.nearBottom;
+}
+
 const STYLES = `
 .host {
   position: fixed; top: 0; right: 0; width: 320px; height: 100%;
@@ -107,6 +122,39 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   let activeRow: HTMLDivElement | null = null;
   // 再生時刻の読み取りと記録時刻のわずかなずれを吸収する許容誤差（秒）。
   const ACTIVE_EPSILON = 0.25;
+  // 追従スクロールの状態。初期は追従ON。
+  let following = true;
+  // 直近で自前スクロールした後の scrollTop。scroll イベントがこの値なら自前由来とみなす。
+  let lastAutoScrollTop = -1;
+
+  // リスト最下部付近にいるか（8px の遊びを持たせる）。
+  const isNearBottom = (): boolean =>
+    list.scrollTop + list.clientHeight >= list.scrollHeight - 8;
+
+  // アクティブ行がリストの可視範囲に重なっているか。
+  const isActiveVisible = (): boolean => {
+    if (!activeRow) return false;
+    const r = activeRow.getBoundingClientRect();
+    const c = list.getBoundingClientRect();
+    return r.bottom > c.top && r.top < c.bottom;
+  };
+
+  // アクティブ行を可視範囲へスクロールし、自前スクロールとして記録する。
+  const scrollActiveIntoView = (): void => {
+    if (!activeRow) return;
+    activeRow.scrollIntoView({ block: 'nearest' });
+    lastAutoScrollTop = list.scrollTop;
+  };
+
+  // 手動スクロールを検知して追従可否を更新する。自前スクロールの「こだま」は無視する。
+  list.addEventListener('scroll', () => {
+    following = nextFollowState({
+      wasFollowing: following,
+      isProgrammatic: list.scrollTop === lastAutoScrollTop,
+      activeRowVisible: isActiveVisible(),
+      nearBottom: isNearBottom(),
+    });
+  });
 
   function append(entry: TranscriptEntry): void {
     const row = document.createElement('div');
@@ -121,7 +169,11 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     list.appendChild(row);
     jaById.set(entry.id, ja);
     rows.push({ videoTime: entry.videoTime, el: row });
-    list.scrollTop = list.scrollHeight;
+    // 追従中のときだけ最下部へ送る（履歴を遡って読んでいる間は勝手に飛ばさない）。
+    if (following) {
+      list.scrollTop = list.scrollHeight;
+      lastAutoScrollTop = list.scrollTop;
+    }
   }
 
   function setTranslation(id: number, japanese: string): void {
@@ -144,6 +196,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     activeRow?.classList.remove('active');
     next?.classList.add('active');
     activeRow = next;
+    if (following) scrollActiveIntoView();
   }
 
   // --- マウント & 全画面追従 ---

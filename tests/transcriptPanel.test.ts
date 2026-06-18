@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTranscriptPanel, type TranscriptPanel } from '../src/content/transcriptPanel';
+import { createTranscriptPanel, nextFollowState, type TranscriptPanel } from '../src/content/transcriptPanel';
 
 const HOST_ID = 'useful-subtitle-transcript';
 
@@ -152,5 +152,34 @@ describe('createTranscriptPanel — 現在再生行のハイライト', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     expect(() => panel!.updateActiveByTime(50)).not.toThrow();
     expect(activeIndex()).toBe(-1);
+  });
+});
+
+describe('nextFollowState — 追従可否の判定', () => {
+  it('プログラム由来のスクロールは無視し、直前の追従状態を保つ', () => {
+    expect(
+      nextFollowState({ wasFollowing: true, isProgrammatic: true, activeRowVisible: false, nearBottom: false }),
+    ).toBe(true);
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: true, activeRowVisible: true, nearBottom: true }),
+    ).toBe(false);
+  });
+
+  it('手動スクロール時はアクティブ行が見えていれば追従を再開する', () => {
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: false, activeRowVisible: true, nearBottom: false }),
+    ).toBe(true);
+  });
+
+  it('手動スクロール時は最下部付近なら追従を再開する', () => {
+    expect(
+      nextFollowState({ wasFollowing: false, isProgrammatic: false, activeRowVisible: false, nearBottom: true }),
+    ).toBe(true);
+  });
+
+  it('手動スクロールでアクティブ行が見えず最下部でもなければ追従を止める', () => {
+    expect(
+      nextFollowState({ wasFollowing: true, isProgrammatic: false, activeRowVisible: false, nearBottom: false }),
+    ).toBe(false);
   });
 });
