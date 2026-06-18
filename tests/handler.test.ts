@@ -9,6 +9,8 @@ function deps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     getCached: async () => undefined,
     setCached: async () => {},
     callAi: async () => 'AI_RESULT',
+    getWordInfo: async () => ({ ipa: null, audioUrl: null }),
+    playOffscreenAudio: async () => {},
     ...overrides,
   };
 }
@@ -76,5 +78,65 @@ describe('handleRequest', () => {
       }),
     );
     expect(received!.user).toContain('break a leg');
+  });
+
+  it('handles lookupWord without an API key and returns word info', async () => {
+    const res = await handleRequest(
+      { type: 'lookupWord', text: 'resilient' },
+      deps({
+        getSettings: async () => DEFAULT_SETTINGS, // キーなし
+        getWordInfo: async () => ({ ipa: '/rɪˈzɪliənt/', audioUrl: 'https://x/r-us.mp3' }),
+      }),
+    );
+    expect(res).toEqual({
+      ok: true,
+      kind: 'word',
+      ipa: '/rɪˈzɪliənt/',
+      audioUrl: 'https://x/r-us.mp3',
+    });
+  });
+
+  it('lookupWord returns nulls for a phrase without calling getWordInfo', async () => {
+    let called = false;
+    const res = await handleRequest(
+      { type: 'lookupWord', text: 'break a leg' },
+      deps({
+        getWordInfo: async () => {
+          called = true;
+          return { ipa: 'x', audioUrl: 'y' };
+        },
+      }),
+    );
+    expect(res).toEqual({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+    expect(called).toBe(false);
+  });
+
+  it('playAudio plays via offscreen and reports played=true (no API key needed)', async () => {
+    let playedUrl = '';
+    const res = await handleRequest(
+      { type: 'playAudio', url: 'https://x/a.mp3' },
+      deps({
+        getSettings: async () => DEFAULT_SETTINGS, // キーなし
+        playOffscreenAudio: async (u: string) => {
+          playedUrl = u;
+        },
+      }),
+    );
+    expect(res).toEqual({ ok: true, kind: 'audio', played: true });
+    expect(playedUrl).toBe('https://x/a.mp3');
+  });
+
+  it('playAudio with empty url reports played=false', async () => {
+    let called = false;
+    const res = await handleRequest(
+      { type: 'playAudio', url: '' },
+      deps({
+        playOffscreenAudio: async () => {
+          called = true;
+        },
+      }),
+    );
+    expect(res).toEqual({ ok: true, kind: 'audio', played: false });
+    expect(called).toBe(false);
   });
 });
