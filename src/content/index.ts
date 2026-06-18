@@ -1,4 +1,4 @@
-import { getSettings } from '../shared/settings';
+import { getSettings, saveSettings } from '../shared/settings';
 import { tokenizeLine } from '../shared/tokenize';
 import { startCaptionObserver } from './captionObserver';
 import { createOverlay, type Overlay } from './overlay';
@@ -10,10 +10,16 @@ async function main(): Promise<void> {
   if (!settings.enabled) return;
 
   let overlay!: Overlay;
-  overlay = createOverlay({
-    onLookup: (selection, sentence, anchor) =>
-      void runLookup(overlay, settings, selection, sentence, anchor),
-  });
+  overlay = createOverlay(
+    {
+      onLookup: (selection, sentence, anchor) =>
+        void runLookup(overlay, settings, selection, sentence, anchor),
+    },
+    {
+      bottomPercent: settings.subtitleBottomPercent,
+      onBottomChange: (percent) => void saveSettings({ subtitleBottomPercent: percent }),
+    },
+  );
 
   // 直近の字幕。非同期の翻訳結果が古い行を上書きしないよう照合に使う。
   let currentText = '';
