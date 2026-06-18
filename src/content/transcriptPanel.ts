@@ -15,6 +15,8 @@ export interface TranscriptPanelCallbacks {
 export interface TranscriptPanel {
   append(entry: TranscriptEntry): void;
   setTranslation(id: number, japanese: string): void;
+  /** 動画の現在再生位置（秒）から、いま再生中の行を判定して .active を付け替える。 */
+  updateActiveByTime(currentTime: number): void;
   destroy(): void;
 }
 
@@ -39,6 +41,10 @@ const STYLES = `
   padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .row:hover { background: rgba(86, 156, 255, 0.18); }
+.row.active {
+  background: rgba(86, 156, 255, 0.14);
+  box-shadow: inset 4px 0 0 #569cff;
+}
 .row .en { font-size: 13px; line-height: 1.4; }
 .row .ja { font-size: 12px; line-height: 1.4; color: #ffe08a; margin-top: 2px; }
 .reopen {
@@ -95,6 +101,12 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   reopen.addEventListener('click', () => setVisible(true));
 
   const jaById = new Map<number, HTMLDivElement>();
+  // 行と videoTime の対応を追加順に保持する（現在行判定に使う）。
+  const rows: { videoTime: number; el: HTMLDivElement }[] = [];
+  // いま .active が付いている行（無ければ null）。
+  let activeRow: HTMLDivElement | null = null;
+  // 再生時刻の読み取りと記録時刻のわずかなずれを吸収する許容誤差（秒）。
+  const ACTIVE_EPSILON = 0.25;
 
   function append(entry: TranscriptEntry): void {
     const row = document.createElement('div');
@@ -108,12 +120,30 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     row.append(en, ja);
     list.appendChild(row);
     jaById.set(entry.id, ja);
+    rows.push({ videoTime: entry.videoTime, el: row });
     list.scrollTop = list.scrollHeight;
   }
 
   function setTranslation(id: number, japanese: string): void {
     const ja = jaById.get(id);
     if (ja) ja.textContent = japanese;
+  }
+
+  function updateActiveByTime(currentTime: number): void {
+    // 「videoTime <= currentTime（+許容誤差）を満たす行のうち videoTime 最大の行」を現在行とする。
+    // タイが出たら後から追加された行（id が後）を優先する（>= で上書き）。
+    let next: HTMLDivElement | null = null;
+    let bestTime = -Infinity;
+    for (const r of rows) {
+      if (r.videoTime <= currentTime + ACTIVE_EPSILON && r.videoTime >= bestTime) {
+        bestTime = r.videoTime;
+        next = r.el;
+      }
+    }
+    if (next === activeRow) return;
+    activeRow?.classList.remove('active');
+    next?.classList.add('active');
+    activeRow = next;
   }
 
   // --- マウント & 全画面追従 ---
@@ -134,5 +164,5 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
   attach();
-  return { append, setTranslation, destroy };
+  return { append, setTranslation, updateActiveByTime, destroy };
 }
