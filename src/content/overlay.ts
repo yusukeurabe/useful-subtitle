@@ -124,6 +124,16 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
     if (dragStart >= 0 && dragEnd >= 0) finishSelection(dragStart, dragEnd);
   };
 
+  const onMouseMove = (e: MouseEvent): void => {
+    if (!dragging) return;
+    const node = shadow.elementFromPoint(e.clientX, e.clientY);
+    if (!node) return;
+    const idx = wordRefs.findIndex((w) => w.el === node);
+    if (idx < 0) return;
+    dragEnd = idx;
+    highlight(dragStart, dragEnd);
+  };
+
   const onDocMouseDown = (e: MouseEvent): void => {
     // シャドウ内（単語/ポップアップ）クリックは host にリターゲットされる。それ以外なら閉じる。
     if (popup && e.target !== host) hidePopup();
@@ -152,11 +162,6 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
         dragStart = index;
         dragEnd = index;
         highlight(index, index);
-      });
-      span.addEventListener('mouseenter', () => {
-        if (!dragging) return;
-        dragEnd = index;
-        highlight(dragStart, dragEnd);
       });
       original.appendChild(span);
       wordRefs.push({ el: span, text: t.text });
@@ -259,6 +264,7 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
 
   document.head.appendChild(hideStyle);
   document.addEventListener('mouseup', onMouseUp, true);
+  document.addEventListener('mousemove', onMouseMove, true);
   document.addEventListener('mousedown', onDocMouseDown, true);
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
@@ -266,6 +272,7 @@ export function createOverlay(callbacks: OverlayCallbacks): Overlay {
 
   function destroy(): void {
     document.removeEventListener('mouseup', onMouseUp, true);
+    document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
     document.removeEventListener('keydown', onKeyDown, true);
     document.removeEventListener('fullscreenchange', onFullscreenChange, true);
