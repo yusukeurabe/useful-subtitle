@@ -40,3 +40,37 @@ export function parseExplanation(raw: string): ParsedExplanation {
 
   return { gloss: gloss || null, explanation };
 }
+
+/** 文まるごとの意味を「和訳(全文)」と「解説」に分解した結果。 */
+export interface SentenceMeaning {
+  /** 文全体の日本語訳（丸めず全文を保持）。無ければ ''。 */
+  translation: string;
+  /** イディオム・文法などの解説。 */
+  explanation: string;
+}
+
+/**
+ * 文用の構造化レスポンス（「訳: …」「説明: …」）を分解する。
+ * 単語用 parseExplanation と違い、訳は正規化・件数丸めをせず全文を保持する。
+ * ラベルが無い場合は translation='' とし全文を explanation に（安全に劣化）。
+ */
+export function parseSentenceMeaning(raw: string): SentenceMeaning {
+  const text = (raw ?? '').trim();
+  if (!text) return { translation: '', explanation: '' };
+
+  const transMatch = text.match(/^訳(?:語)?[ \t]*[:：][ \t]*(.+?)[ \t]*$/m);
+  const explMatch = text.match(/^説明[ \t]*[:：]\s*([\s\S]+)$/m);
+
+  const translation = transMatch ? transMatch[1].trim() : '';
+
+  let explanation: string;
+  if (explMatch) {
+    explanation = explMatch[1].trim();
+  } else if (transMatch) {
+    explanation = text.replace(transMatch[0], '').trim();
+  } else {
+    explanation = text;
+  }
+
+  return { translation, explanation };
+}
