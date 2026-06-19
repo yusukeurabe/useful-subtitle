@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createTranscriptPanel, nextFollowState, type TranscriptPanel } from '../src/content/transcriptPanel';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  createTranscriptPanel,
+  nextFollowState,
+  type TranscriptPanel,
+  type TranscriptMeaning,
+} from '../src/content/transcriptPanel';
 
 const HOST_ID = 'useful-subtitle-transcript';
 
@@ -181,5 +186,174 @@ describe('nextFollowState — 追従可否の判定', () => {
     expect(
       nextFollowState({ wasFollowing: true, isProgrammatic: false, activeRowVisible: false, nearBottom: false }),
     ).toBe(false);
+  });
+});
+
+describe('createTranscriptPanel — クリックでシーク', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function rowsOf(): HTMLDivElement[] {
+    const host = document.getElementById(HOST_ID);
+    return Array.from(host!.shadowRoot!.querySelectorAll<HTMLDivElement>('.row'));
+  }
+  function popup(): HTMLDivElement | null {
+    const host = document.getElementById(HOST_ID);
+    return host!.shadowRoot!.querySelector<HTMLDivElement>('.hover-popup');
+  }
+
+  it('行をクリックするとその行の videoTime で onSeek が呼ばれる', () => {
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t) });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 42 });
+    rowsOf()[0].click();
+    expect(seeks).toEqual([42]);
+  });
+
+  it('onExplain 未指定（ホバー機能オフ相当）でもクリックでシークできる', () => {
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t) });
+    panel.append({ id: 1, english: 'A', videoTime: 1 });
+    panel.append({ id: 2, english: 'B', videoTime: 2 });
+    rowsOf()[1].click();
+    expect(seeks).toEqual([2]);
+  });
+
+  it('ホバーでポップアップが出た後でもクリックでシークできる（回帰）', async () => {
+    vi.useFakeTimers();
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({
+      onSeek: (t) => seeks.push(t),
+      onExplain: async () => ({ ok: true, translation: 'x', explanation: 'y' }),
+    });
+    panel.append({ id: 1, english: 'Hello', videoTime: 7 });
+    const row = rowsOf()[0];
+
+    row.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(popup()).not.toBeNull(); // ポップアップが出ている状態でも…
+
+    row.click(); // …クリックはちゃんとシークする
+    expect(seeks).toEqual([7]);
+  });
+});
+
+describe('createTranscriptPanel — ホバーで文の意味', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function rowsOf(): HTMLDivElement[] {
+    const host = document.getElementById(HOST_ID);
+    return Array.from(host!.shadowRoot!.querySelectorAll<HTMLDivElement>('.row'));
+  }
+  function popup(): HTMLDivElement | null {
+    const host = document.getElementById(HOST_ID);
+    return host!.shadowRoot!.querySelector<HTMLDivElement>('.hover-popup');
+  }
+
+  it('ドウェル時間が過ぎると onExplain が呼ばれ和訳・解説が出る', async () => {
+    const calls: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async (s) => {
+        calls.push(s);
+        return { ok: true, translation: '和訳テキスト', explanation: '解説テキスト' };
+      },
+    });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    row.dispatchEvent(new Event('mouseenter'));
+    expect(popup()).toBeNull(); // ドウェル前は出ない
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(calls).toEqual(['Break a leg!']);
+    const p = popup();
+    expect(p).not.toBeNull();
+    expect(p!.textContent).toContain('和訳テキスト');
+    expect(p!.textContent).toContain('解説テキスト');
+  });
+
+  it('ドウェル前に離れると onExplain は呼ばれない', async () => {
+    let called = 0;
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async () => {
+        called++;
+        return { ok: true, translation: 'x', explanation: 'y' };
+      },
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    row.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(200);
+    row.dispatchEvent(new Event('mouseleave'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(called).toBe(0);
+    expect(popup()).toBeNull();
+  });
+
+  it('エラー応答は赤字(.err)で表示する', async () => {
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async () => ({ ok: false, error: 'APIキーが未設定です。' }),
+    });
+    panel.append({ id: 1, english: 'X', videoTime: 1 });
+    rowsOf()[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    const p = popup();
+    expect(p!.textContent).toContain('APIキーが未設定です。');
+    expect(p!.querySelector('.err')).not.toBeNull();
+  });
+
+  it('別の行へ移ると古い応答は無視され、最後の行の意味が残る', async () => {
+    let resolveFirst: (v: TranscriptMeaning) => void = () => {};
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: (s) => {
+        if (s === 'first') return new Promise<TranscriptMeaning>((r) => { resolveFirst = r; });
+        return Promise.resolve({ ok: true, translation: 'SECOND', explanation: 'second expl' });
+      },
+    });
+    panel.append({ id: 1, english: 'first', videoTime: 1 });
+    panel.append({ id: 2, english: 'second', videoTime: 2 });
+    const [r1, r2] = rowsOf();
+
+    r1.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500); // first 要求中（未解決）
+    r1.dispatchEvent(new Event('mouseleave'));
+    r2.dispatchEvent(new Event('mouseenter')); // r1 の閉じる猶予をキャンセル
+    await vi.advanceTimersByTimeAsync(500); // second 解決→描画
+
+    resolveFirst({ ok: true, translation: 'FIRST', explanation: 'first expl' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const p = popup();
+    expect(p!.textContent).toContain('SECOND');
+    expect(p!.textContent).not.toContain('FIRST');
   });
 });

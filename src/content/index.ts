@@ -9,6 +9,7 @@ import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { findVideo, seekVideo } from './videoControl';
 import { sendRequest } from '../shared/messages';
+import { parseSentenceMeaning } from '../shared/explanation';
 
 async function main(): Promise<void> {
   const settings = await getSettings();
@@ -28,7 +29,15 @@ async function main(): Promise<void> {
   );
 
   const panel: TranscriptPanel | null = settings.showTranscriptPanel
-    ? createTranscriptPanel({ onSeek: seekVideo })
+    ? createTranscriptPanel({
+        onSeek: seekVideo,
+        onExplain: async (sentence) => {
+          const res = await sendRequest({ type: 'explainSentence', text: sentence });
+          if (!res.ok) return { ok: false, error: res.error };
+          const { translation, explanation } = parseSentenceMeaning(res.text);
+          return { ok: true, translation, explanation };
+        },
+      })
     : null;
   let entryId = 0;
 

@@ -1,5 +1,6 @@
 import type {
   ExplainSelectionRequest,
+  ExplainSentenceRequest,
   ExplanationLanguage,
   TranslateLineRequest,
 } from '../shared/types';
@@ -13,12 +14,15 @@ const STORAGE_PREFIX = 'cache:';
  * モデルや言語が変わると別エントリになり、古い結果が混ざらない。
  */
 export function makeCacheKey(
-  req: TranslateLineRequest | ExplainSelectionRequest,
+  req: TranslateLineRequest | ExplainSelectionRequest | ExplainSentenceRequest,
   model: string,
   language: ExplanationLanguage,
 ): string {
   if (req.type === 'translateLine') {
     return ['t', model, req.text].join(SEP);
+  }
+  if (req.type === 'explainSentence') {
+    return ['s', model, language, req.text].join(SEP);
   }
   return ['e', model, language, req.selection, req.context].join(SEP);
 }
