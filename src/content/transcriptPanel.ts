@@ -7,9 +7,16 @@ export interface TranscriptEntry {
   videoTime: number;
 }
 
+/** ホバーで取得する文の意味（成功＝和訳＋解説／失敗＝メッセージ）。 */
+export type TranscriptMeaning =
+  | { ok: true; translation: string; explanation: string }
+  | { ok: false; error: string };
+
 export interface TranscriptPanelCallbacks {
   /** 行クリックでその場面へシークする。 */
   onSeek: (videoTime: number) => void;
+  /** 行に一定時間ホバーしたとき、その英文の意味（和訳＋解説）を取得する。 */
+  onExplain?: (sentence: string) => Promise<TranscriptMeaning>;
 }
 
 export interface TranscriptPanel {
@@ -69,6 +76,18 @@ const STYLES = `
   pointer-events: auto;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
+.hover-popup {
+  position: fixed; max-width: 300px; min-width: 180px;
+  background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
+  padding: 10px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  font-size: 13px; line-height: 1.6; pointer-events: auto; z-index: 2147483001;
+}
+.hover-popup .hp-label { font-size: 11px; color: #8ab4ff; font-weight: 700; margin-bottom: 2px; }
+.hover-popup .hp-trans { color: #ffe08a; margin-bottom: 4px; white-space: pre-wrap; }
+.hover-popup .hp-divider { border-top: 1px solid #3a3a3a; margin: 8px 0; }
+.hover-popup .hp-expl { white-space: pre-wrap; }
+.hover-popup .hp-body.loading { opacity: 0.7; }
+.hover-popup .hp-body.err { color: #ff8a8a; }
 `;
 
 export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptPanel {
@@ -156,10 +175,131 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     });
   });
 
+  // --- ホバーで文の意味を表示するポップアップ ---
+  const DWELL_MS = 500; // 何ms乗せ続けたら出すか
+  const CLOSE_GRACE_MS = 200; // 離れてから閉じるまでの猶予
+  let hoverPopup: HTMLDivElement | null = null;
+  let dwellTimer: ReturnType<typeof setTimeout> | undefined;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  // 応答の競合ガード。開く/閉じるたびに増やし、古い応答を破棄する。
+  let hoverSeq = 0;
+
+  const clearDwell = (): void => {
+    if (dwellTimer) {
+      clearTimeout(dwellTimer);
+      dwellTimer = undefined;
+    }
+  };
+  const clearClose = (): void => {
+    if (closeTimer) {
+      clearTimeout(closeTimer);
+      closeTimer = undefined;
+    }
+  };
+  const hideHoverPopup = (): void => {
+    clearDwell();
+    clearClose();
+    hoverSeq++; // 進行中の応答を無効化
+    if (hoverPopup) {
+      hoverPopup.remove();
+      hoverPopup = null;
+    }
+  };
+  const scheduleClose = (): void => {
+    clearClose();
+    closeTimer = setTimeout(hideHoverPopup, CLOSE_GRACE_MS);
+  };
+
+  const positionHoverPopup = (row: HTMLElement): void => {
+    if (!hoverPopup) return;
+    const r = row.getBoundingClientRect();
+    const margin = 8;
+    const pw = hoverPopup.offsetWidth || 280;
+    const ph = hoverPopup.offsetHeight || 0;
+    // パネルは右端なのでカードは行の左側へ開く。入らなければ左端にクランプ。
+    let left = r.left - pw - margin;
+    if (left < margin) left = margin;
+    const top = Math.max(margin, Math.min(r.top, window.innerHeight - ph - margin));
+    hoverPopup.style.left = `${left}px`;
+    hoverPopup.style.top = `${top}px`;
+  };
+
+  const renderHoverResult = (res: TranscriptMeaning): void => {
+    if (!hoverPopup) return;
+    hoverPopup.replaceChildren();
+    if (!res.ok) {
+      const err = document.createElement('div');
+      err.className = 'hp-body err';
+      err.textContent = res.error;
+      hoverPopup.appendChild(err);
+      return;
+    }
+    if (res.translation) {
+      const label = document.createElement('div');
+      label.className = 'hp-label';
+      label.textContent = '和訳';
+      const val = document.createElement('div');
+      val.className = 'hp-trans';
+      val.textContent = res.translation;
+      hoverPopup.append(label, val);
+    }
+    if (res.explanation) {
+      if (res.translation) {
+        const divider = document.createElement('div');
+        divider.className = 'hp-divider';
+        hoverPopup.appendChild(divider);
+      }
+      const label = document.createElement('div');
+      label.className = 'hp-label';
+      label.textContent = '解説';
+      const val = document.createElement('div');
+      val.className = 'hp-expl';
+      val.textContent = res.explanation;
+      hoverPopup.append(label, val);
+    }
+  };
+
+  const openHoverPopup = (row: HTMLElement, sentence: string): void => {
+    if (!cb.onExplain) return;
+    clearClose();
+    const seq = ++hoverSeq;
+    if (!hoverPopup) {
+      hoverPopup = document.createElement('div');
+      hoverPopup.className = 'hover-popup';
+      hoverPopup.addEventListener('mouseenter', clearClose);
+      hoverPopup.addEventListener('mouseleave', scheduleClose);
+      shadow.appendChild(hoverPopup);
+    }
+    hoverPopup.replaceChildren();
+    const body = document.createElement('div');
+    body.className = 'hp-body loading';
+    body.textContent = '考え中…';
+    hoverPopup.appendChild(body);
+    positionHoverPopup(row);
+    void cb.onExplain(sentence).then((res) => {
+      if (seq !== hoverSeq || !hoverPopup) return; // 別の行へ移った/閉じた
+      renderHoverResult(res);
+      positionHoverPopup(row);
+    });
+  };
+
+  const onHoverKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') hideHoverPopup();
+  };
+
   function append(entry: TranscriptEntry): void {
     const row = document.createElement('div');
     row.className = 'row';
     row.addEventListener('click', () => cb.onSeek(entry.videoTime));
+    row.addEventListener('mouseenter', () => {
+      clearClose();
+      clearDwell();
+      dwellTimer = setTimeout(() => openHoverPopup(row, entry.english), DWELL_MS);
+    });
+    row.addEventListener('mouseleave', () => {
+      clearDwell();
+      scheduleClose();
+    });
     const en = document.createElement('div');
     en.className = 'en';
     en.textContent = entry.english;
@@ -211,11 +351,14 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   function destroy(): void {
     document.removeEventListener('fullscreenchange', onFullscreenChange, true);
+    document.removeEventListener('keydown', onHoverKeyDown, true);
+    hideHoverPopup();
     host.remove();
     jaById.clear();
   }
 
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
+  document.addEventListener('keydown', onHoverKeyDown, true);
   attach();
   return { append, setTranslation, updateActiveByTime, destroy };
 }
