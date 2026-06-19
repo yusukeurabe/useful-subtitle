@@ -189,6 +189,65 @@ describe('nextFollowState — 追従可否の判定', () => {
   });
 });
 
+describe('createTranscriptPanel — クリックでシーク', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function rowsOf(): HTMLDivElement[] {
+    const host = document.getElementById(HOST_ID);
+    return Array.from(host!.shadowRoot!.querySelectorAll<HTMLDivElement>('.row'));
+  }
+  function popup(): HTMLDivElement | null {
+    const host = document.getElementById(HOST_ID);
+    return host!.shadowRoot!.querySelector<HTMLDivElement>('.hover-popup');
+  }
+
+  it('行をクリックするとその行の videoTime で onSeek が呼ばれる', () => {
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t) });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 42 });
+    rowsOf()[0].click();
+    expect(seeks).toEqual([42]);
+  });
+
+  it('onExplain 未指定（ホバー機能オフ相当）でもクリックでシークできる', () => {
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t) });
+    panel.append({ id: 1, english: 'A', videoTime: 1 });
+    panel.append({ id: 2, english: 'B', videoTime: 2 });
+    rowsOf()[1].click();
+    expect(seeks).toEqual([2]);
+  });
+
+  it('ホバーでポップアップが出た後でもクリックでシークできる（回帰）', async () => {
+    vi.useFakeTimers();
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({
+      onSeek: (t) => seeks.push(t),
+      onExplain: async () => ({ ok: true, translation: 'x', explanation: 'y' }),
+    });
+    panel.append({ id: 1, english: 'Hello', videoTime: 7 });
+    const row = rowsOf()[0];
+
+    row.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(popup()).not.toBeNull(); // ポップアップが出ている状態でも…
+
+    row.click(); // …クリックはちゃんとシークする
+    expect(seeks).toEqual([7]);
+  });
+});
+
 describe('createTranscriptPanel — ホバーで文の意味', () => {
   let panel: TranscriptPanel | null = null;
 
