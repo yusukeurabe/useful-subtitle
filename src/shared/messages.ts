@@ -3,6 +3,7 @@ import type {
   ResponseMessage,
   TranslateLineRequest,
   ExplainSelectionRequest,
+  ExplainSentenceRequest,
   PingRequest,
   LookupWordRequest,
   PlayAudioRequest,
@@ -18,7 +19,7 @@ import type {
 export function sendRequest(req: LookupWordRequest): Promise<WordInfoResponse | ErrorResponse>;
 export function sendRequest(req: PlayAudioRequest): Promise<AudioResponse | ErrorResponse>;
 export function sendRequest(
-  req: TranslateLineRequest | ExplainSelectionRequest | PingRequest,
+  req: TranslateLineRequest | ExplainSelectionRequest | ExplainSentenceRequest | PingRequest,
 ): Promise<ResponseMessage>;
 export async function sendRequest(
   req: RequestMessage,

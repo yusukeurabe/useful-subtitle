@@ -139,4 +139,41 @@ describe('handleRequest', () => {
     expect(res).toEqual({ ok: true, kind: 'audio', played: false });
     expect(called).toBe(false);
   });
+
+  it('explainSentence asks the AI about the whole sentence and stores it', async () => {
+    let received: AnthropicParams | null = null;
+    let stored: [string, string] | null = null;
+    const res = await handleRequest(
+      { type: 'explainSentence', text: 'I could eat a horse.' },
+      deps({
+        callAi: async (p: AnthropicParams) => {
+          received = p;
+          return 'AI_SENTENCE';
+        },
+        setCached: async (k: string, v: string) => {
+          stored = [k, v];
+        },
+      }),
+    );
+    expect(res).toEqual({ ok: true, text: 'AI_SENTENCE' });
+    expect(received!.user).toContain('I could eat a horse.');
+    expect(received!.system).toContain('訳:');
+    expect(stored![1]).toBe('AI_SENTENCE');
+  });
+
+  it('explainSentence returns the cached value without calling the AI', async () => {
+    let aiCalled = false;
+    const res = await handleRequest(
+      { type: 'explainSentence', text: 'Hello' },
+      deps({
+        getCached: async () => 'CACHED_S',
+        callAi: async () => {
+          aiCalled = true;
+          return 'x';
+        },
+      }),
+    );
+    expect(res).toEqual({ ok: true, text: 'CACHED_S' });
+    expect(aiCalled).toBe(false);
+  });
 });

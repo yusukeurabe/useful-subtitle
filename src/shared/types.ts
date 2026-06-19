@@ -54,6 +54,7 @@ export interface PlayAudioRequest {
 export type RequestMessage =
   | TranslateLineRequest
   | ExplainSelectionRequest
+  | ExplainSentenceRequest
   | PingRequest
   | LookupWordRequest
   | PlayAudioRequest;

@@ -1,4 +1,8 @@
-import { buildTranslationPrompt, buildExplanationPrompt } from '../shared/prompts';
+import {
+  buildTranslationPrompt,
+  buildExplanationPrompt,
+  buildSentenceMeaningPrompt,
+} from '../shared/prompts';
 import { makeCacheKey } from './cache';
 import { AiError, type AnthropicParams } from './aiClient';
 import { normalizeWord, isSingleWord, type WordInfo } from '../shared/dictionary';
@@ -82,7 +86,9 @@ export async function handleRequest(
     const prompt =
       req.type === 'translateLine'
         ? buildTranslationPrompt(req.text)
-        : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage);
+        : req.type === 'explainSentence'
+          ? buildSentenceMeaningPrompt(req.text, settings.explanationLanguage)
+          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage);
 
     const text = await deps.callAi({
       apiKey: settings.apiKey,
