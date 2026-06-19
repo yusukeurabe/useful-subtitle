@@ -40,3 +40,22 @@ export function buildExplanationPrompt(
     user: `文: "${context}"\nこの文の中の "${selection}" の意味を教えてください。`,
   };
 }
+
+/**
+ * 字幕一文（sentence）まるごとの意味を解説するためのプロンプト。
+ * 訳は全文の自然な和訳、説明はイディオム・句動詞・文法・ニュアンスを補足する。
+ */
+export function buildSentenceMeaningPrompt(
+  sentence: string,
+  language: ExplanationLanguage,
+): PromptParts {
+  const label = LANGUAGE_LABEL[language];
+  return {
+    system:
+      'あなたは日本語話者の英語学習を助けるチューターです。' +
+      '字幕の一文について、次の厳密な2行形式で出力してください（前置き・引用符・装飾は付けない）。\n' +
+      '訳: 文全体の自然な日本語訳を1文で。語句に分割せず全文を訳す。\n' +
+      `説明: ${label}で、文に含まれるイディオム・句動詞・文法・ニュアンスを簡潔に（2〜4文）。`,
+    user: `次の英文の意味を教えてください:\n"${sentence}"`,
+  };
+}
