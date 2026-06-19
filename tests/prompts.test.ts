@@ -39,13 +39,28 @@ describe('buildExplanationPrompt', () => {
     expect(system).toMatch(/英語|English/i);
   });
 
-  it('asks for the structured 訳/説明 format', () => {
+  it('lists Cambridge-style part-of-speech codes', () => {
     const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
-    expect(system).toContain('訳:');
+    expect(system).toContain('V[I]');
+    expect(system).toContain('V[I/T]');
+    expect(system).toContain('N[C]');
+    expect(system).toContain('N[C/U]');
+    expect(system).toContain('Adj.');
+    expect(system).toContain('Adv.');
+  });
+
+  it('asks for a per-POS line plus the 説明 line', () => {
+    const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
+    expect(system).toContain('品詞');
     expect(system).toContain('説明:');
   });
 
-  it('asks for up to 3 general translations separated by ・', () => {
+  it('tells phrases to fall back to a single 訳 line', () => {
+    const { system } = buildExplanationPrompt('break a leg', 'a sentence', 'ja');
+    expect(system).toContain('訳:');
+  });
+
+  it('asks for up to 3 translations separated by ・', () => {
     const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
     expect(system).toMatch(/3つ/);
     expect(system).toContain('・');
