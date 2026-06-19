@@ -1,4 +1,5 @@
 import type { Token } from '../shared/tokenize';
+import type { WordSense } from '../shared/explanation';
 import { CAPTION_TEXT_SELECTORS } from '../shared/selectors';
 import { cambridgeUrl } from '../shared/dictionary';
 
@@ -26,7 +27,7 @@ export interface Overlay {
   clearLine(): void;
   setTranslation(state: TranslationState): void;
   openPopup(anchor: DOMRect, selection: string): void;
-  setPopupMeaning(text: string, gloss: string | null): void;
+  setPopupMeaning(explanation: string, senses: WordSense[]): void;
   setPopupError(message: string): void;
   setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
   hidePopup(): void;
@@ -60,7 +61,15 @@ const STYLES = `
 }
 .popup .sel { margin-bottom: 4px; }
 .popup .sel .sel-word { font-weight: 700; color: #8ab4ff; }
-.popup .sel .gloss { margin-left: 8px; color: #d8d8d8; font-weight: 400; font-size: 13px; }
+.popup .senses {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px;
+  margin: 0 0 8px;
+}
+.popup .senses .pos {
+  color: #b9c4d6; font-size: 13px; white-space: nowrap;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+.popup .senses .sense-gloss { color: #d8d8d8; font-size: 13px; }
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
@@ -159,7 +168,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let popup: HTMLDivElement | null = null;
   let popupBody: HTMLDivElement | null = null;
   let popupIpa: HTMLDivElement | null = null;
-  let popupGloss: HTMLSpanElement | null = null;
+  let popupSenses: HTMLDivElement | null = null;
   let popupAnchor: DOMRect | null = null;
   let popupSelection = '';
   let popupAudioUrl: string | null = null;
@@ -305,11 +314,14 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const selWord = document.createElement('span');
     selWord.className = 'sel-word';
     selWord.textContent = selection;
-    popupGloss = document.createElement('span');
-    popupGloss.className = 'gloss';
-    popupGloss.style.display = 'none';
-    sel.append(selWord, popupGloss);
+    sel.appendChild(selWord);
     p.appendChild(sel);
+
+    // 単語の下に「品詞ごとの訳」グリッド（AI 応答が来たら setPopupMeaning で埋める）。
+    popupSenses = document.createElement('div');
+    popupSenses.className = 'senses';
+    popupSenses.style.display = 'none';
+    p.appendChild(popupSenses);
 
     popupIpa = document.createElement('div');
     popupIpa.className = 'ipa';
@@ -345,18 +357,27 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     positionPopup(anchor);
   }
 
-  function setPopupMeaning(text: string, gloss: string | null): void {
+  function setPopupMeaning(explanation: string, senses: WordSense[]): void {
     if (popupBody) {
       popupBody.className = 'body';
-      popupBody.textContent = text;
+      popupBody.textContent = explanation;
     }
-    if (popupGloss) {
-      if (gloss) {
-        popupGloss.textContent = gloss;
-        popupGloss.style.display = '';
+    if (popupSenses) {
+      popupSenses.replaceChildren();
+      if (senses.length > 0) {
+        // グリッド2列（品詞 / 訳）。pos=null（フレーズ・旧形式）はコード列を空にする。
+        for (const s of senses) {
+          const pos = document.createElement('span');
+          pos.className = 'pos';
+          pos.textContent = s.pos ?? '';
+          const gloss = document.createElement('span');
+          gloss.className = 'sense-gloss';
+          gloss.textContent = s.gloss;
+          popupSenses.append(pos, gloss);
+        }
+        popupSenses.style.display = '';
       } else {
-        popupGloss.textContent = '';
-        popupGloss.style.display = 'none';
+        popupSenses.style.display = 'none';
       }
     }
     if (popupAnchor) positionPopup(popupAnchor);
@@ -389,7 +410,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     }
     popupBody = null;
     popupIpa = null;
-    popupGloss = null;
+    popupSenses = null;
     popupAnchor = null;
     popupAudioUrl = null;
     clearHighlight();

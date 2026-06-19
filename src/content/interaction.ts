@@ -23,8 +23,8 @@ export async function runLookup(
   void loadWordInfo(overlay, selection);
   const res = await sendRequest({ type: 'explainSelection', selection, context: sentence });
   if (res.ok) {
-    const { gloss, explanation } = parseExplanation(res.text);
-    overlay.setPopupMeaning(explanation, gloss);
+    const { senses, explanation } = parseExplanation(res.text);
+    overlay.setPopupMeaning(explanation, senses);
   } else {
     overlay.setPopupError(res.error);
   }
