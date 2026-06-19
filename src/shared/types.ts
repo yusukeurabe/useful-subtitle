@@ -34,6 +34,11 @@ export interface ExplainSelectionRequest {
   selection: string;
   context: string;
 }
+/** 字幕一文まるごとの意味（和訳＋解説）を問う。履歴行ホバーで使う。 */
+export interface ExplainSentenceRequest {
+  type: 'explainSentence';
+  text: string;
+}
 /** 設定画面の「接続テスト」で使う疎通確認。 */
 export interface PingRequest {
   type: 'ping';

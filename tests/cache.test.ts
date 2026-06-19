@@ -33,6 +33,25 @@ describe('makeCacheKey', () => {
     );
     expect(ja).not.toBe(en);
   });
+
+  it('differs between explainSentence and the others, prefixed with s', () => {
+    const s = makeCacheKey({ type: 'explainSentence', text: 'run' }, model, 'ja');
+    const t = makeCacheKey({ type: 'translateLine', text: 'run' }, model, 'ja');
+    const e = makeCacheKey(
+      { type: 'explainSelection', selection: 'run', context: 'run' },
+      model,
+      'ja',
+    );
+    expect(s).not.toBe(t);
+    expect(s).not.toBe(e);
+    expect(s.startsWith('s')).toBe(true);
+  });
+
+  it('explainSentence key differs when the language changes', () => {
+    const ja = makeCacheKey({ type: 'explainSentence', text: 'run' }, model, 'ja');
+    const en = makeCacheKey({ type: 'explainSentence', text: 'run' }, model, 'en');
+    expect(ja).not.toBe(en);
+  });
 });
 
 describe('cache store', () => {
