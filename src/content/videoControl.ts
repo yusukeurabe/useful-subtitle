@@ -1,4 +1,4 @@
-import { VIDEO_SELECTOR } from '../shared/selectors';
+import { VIDEO_SELECTOR, PLAYPAUSE_BUTTON_SELECTORS } from '../shared/selectors';
 
 /**
  * 本編 video を選ぶのに使う最小限のプロパティ。
@@ -67,8 +67,40 @@ export function playVideo(): void {
   if (v && v.paused) void v.play().catch(() => undefined);
 }
 
-/** 指定秒へシークする（負値は 0 に丸める）。 */
+/** Prime の再生/一時停止トグルボタンを探す（無ければ null）。 */
+function findPlayPauseButton(): HTMLElement | null {
+  for (const sel of PLAYPAUSE_BUTTON_SELECTORS) {
+    const el = document.querySelector<HTMLElement>(sel);
+    if (el) return el;
+  }
+  return null;
+}
+
+/**
+ * 指定秒へシークし、その地点から再生を再開する（負値は 0 に丸める）。
+ *
+ * Prime は一時停止中だと (a) プログラムからの currentTime 変更で画面を描き直さず、
+ * さらに (b) 生の <video>.play() を直後に握り潰して停止のままにすることがある。
+ * 履歴行をクリックしても「戻らない／戻るが再生されない」ように見えるため、多段で
+ * 確実に再開させる：
+ *   1. currentTime をセット
+ *   2. すぐ play()（バッファ済みなら即フレーム更新＋再生）
+ *   3. シーク完了(seeked)時にもう一度 play()（未バッファ地点で 2 が落ちた場合の保険）
+ *   4. 少し待っても停止中なら Prime 自身の再生ボタンを押す（状態機械ごと動かすので
+ *      握り潰されない）
+ * 履歴行クリックはユーザー操作内なので play()/click は許可される。再生中に呼ばれた
+ * 場合は 4 を skip する（v.paused が false）ので、再生中クリックを誤って停止しない。
+ * 同じ要素を一貫して扱い、findVideo の二度引きによる取り違えも防ぐ。
+ */
 export function seekVideo(seconds: number): void {
   const v = findVideo();
-  if (v) v.currentTime = Math.max(0, seconds);
+  if (!v) return;
+  v.currentTime = Math.max(0, seconds);
+  const resume = (): void => void v.play().catch(() => undefined);
+  resume();
+  v.addEventListener('seeked', resume, { once: true });
+  setTimeout(() => {
+    if (!v.paused) return; // 既に再生できている（再生中クリックを含む）→ 何もしない
+    findPlayPauseButton()?.click();
+  }, 200);
 }
