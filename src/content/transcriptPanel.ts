@@ -116,11 +116,11 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const header = document.createElement('div');
   header.className = 'header';
   const title = document.createElement('span');
-  title.textContent = '字幕の履歴';
+  title.textContent = 'Transcript History';
   const closeX = document.createElement('span');
   closeX.className = 'x';
   closeX.textContent = '×';
-  closeX.title = 'パネルを閉じる';
+  closeX.title = 'Close panel';
   // 右側のボタン群。space-between で散らばらないよう1つにまとめる（🗑 を × の左隣に置く）。
   const actions = document.createElement('span');
   actions.className = 'actions';
@@ -128,7 +128,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const clearBtn = document.createElement('span');
     clearBtn.className = 'clear';
     clearBtn.textContent = '🗑';
-    clearBtn.title = '履歴をすべて消す';
+    clearBtn.title = 'Clear all history';
     clearBtn.addEventListener('click', () => cb.onClearHistory?.());
     actions.append(clearBtn);
   }
@@ -142,7 +142,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   const reopen = document.createElement('button');
   reopen.className = 'reopen';
-  reopen.textContent = '☰ 字幕履歴';
+  reopen.textContent = '☰ Transcript';
   reopen.style.display = 'none';
   shadow.appendChild(reopen);
 
@@ -292,7 +292,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     hoverPopup.replaceChildren();
     const body = document.createElement('div');
     body.className = 'hp-body loading';
-    body.textContent = '考え中…';
+    body.textContent = 'Thinking…';
     hoverPopup.appendChild(body);
     positionHoverPopup(row);
     void cb.onExplain(sentence).then((res) => {

@@ -351,7 +351,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
     popupBody = document.createElement('div');
     popupBody.className = 'body loading';
-    popupBody.textContent = '考え中…';
+    popupBody.textContent = 'Thinking…';
     p.appendChild(popupBody);
 
     positionPopup(anchor);
