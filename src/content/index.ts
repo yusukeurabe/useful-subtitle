@@ -8,6 +8,7 @@ import { createTranscriptRecorder } from './transcriptRecorder';
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { findVideo, seekVideo } from './videoControl';
+import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
 import { parseSentenceMeaning } from '../shared/explanation';
 
@@ -44,13 +45,34 @@ async function main(): Promise<void> {
   // 履歴への重複記録を防ぐ記録ポリシー。履歴クリックや再生バーで過去へ巻き戻して
   // 記録済み範囲を再生し直す間は記録せず、記録済み地点を追い越したら記録を再開する。
   const recorder = createTranscriptRecorder();
+  // 別作品・別エピソードへの切り替えを見分ける検出器（URL の作品コード＋本編の尺）。
+  // 広告では発火しない（id も本編の尺も変わらない）ので、広告で履歴を誤って消さない。
+  const titleSwitch = createTitleSwitchDetector();
+
+  // 作品が本当に切り替わったときだけ履歴を全消去し、記録位置も初期化する。
+  const maybeResetForNewTitle = (): void => {
+    if (!panel) return;
+    const switched = titleSwitch.check({
+      id: extractContentId(location.href),
+      durationRaw: findVideo()?.duration ?? NaN,
+    });
+    if (switched) {
+      panel.clear();
+      recorder.reset();
+    }
+  };
+
   if (panel) {
-    // 動画の読み込み（エピソード切替など）を検知してフロンティアを初期化し、
-    // 新しい動画を時刻 0 付近から記録できるようにする。メディアイベントはバブリング
-    // しないため document のキャプチャ段で受ける。
-    const resetRecorder = (): void => recorder.reset();
+    // 動画の読み込み（エピソード切替など）を検知。フロンティアは従来どおり常に初期化し
+    // （新しい動画を時刻 0 付近から記録できるように）、加えて作品が本当に変わったかを
+    // 判定して履歴を全消去する。メディアイベントはバブリングしないため document の
+    // キャプチャ段で受ける。
+    const handleMediaLoad = (): void => {
+      recorder.reset();
+      maybeResetForNewTitle();
+    };
     for (const ev of ['loadstart', 'emptied', 'durationchange'] as const) {
-      document.addEventListener(ev, resetRecorder, true);
+      document.addEventListener(ev, handleMediaLoad, true);
     }
   }
 
@@ -67,6 +89,9 @@ async function main(): Promise<void> {
   let currentText = '';
 
   startCaptionObserver((raw) => {
+    // 記録の前に作品切替を判定する。切り替わっていれば履歴を空にしてから進むので、
+    // 新作品の最初の字幕が履歴の先頭行になる。
+    maybeResetForNewTitle();
     if (raw === null) {
       currentText = '';
       overlay.clearLine();
