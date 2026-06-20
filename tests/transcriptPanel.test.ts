@@ -357,3 +357,81 @@ describe('createTranscriptPanel — ホバーで文の意味', () => {
     expect(p!.textContent).not.toContain('FIRST');
   });
 });
+
+describe('createTranscriptPanel — clear() で履歴を全消去', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function rowsOf(): HTMLDivElement[] {
+    const host = document.getElementById(HOST_ID);
+    return Array.from(host!.shadowRoot!.querySelectorAll<HTMLDivElement>('.row'));
+  }
+  function popup(): HTMLDivElement | null {
+    const host = document.getElementById(HOST_ID);
+    return host!.shadowRoot!.querySelector<HTMLDivElement>('.hover-popup');
+  }
+
+  it('clear() で全ての行が消える', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'A', videoTime: 1 });
+    panel.append({ id: 2, english: 'B', videoTime: 2 });
+    expect(rowsOf()).toHaveLength(2);
+
+    panel.clear();
+    expect(rowsOf()).toHaveLength(0);
+  });
+
+  it('clear() 後の updateActiveByTime は何もせず例外を出さない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'A', videoTime: 10 });
+    panel.clear();
+    expect(() => panel!.updateActiveByTime(50)).not.toThrow();
+    expect(rowsOf().filter((r) => r.classList.contains('active'))).toHaveLength(0);
+  });
+
+  it('clear() 後に append すると新しい行が先頭になる', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'OLD', videoTime: 1000 });
+    panel.clear();
+    panel.append({ id: 2, english: 'NEW', videoTime: 3 });
+
+    const rows = rowsOf();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain('NEW');
+    expect(rows[0].textContent).not.toContain('OLD');
+  });
+
+  it('clear() 後に旧 id へ setTranslation しても無視され例外を出さない（遅延翻訳の混入防止）', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'OLD', videoTime: 1 });
+    panel.clear();
+    expect(() => panel!.setTranslation(1, '遅れて来た翻訳')).not.toThrow();
+    const host = document.getElementById(HOST_ID);
+    expect(host!.shadowRoot!.textContent).not.toContain('遅れて来た翻訳');
+  });
+
+  it('ホバーカードが開いている状態で clear() すると閉じる', async () => {
+    vi.useFakeTimers();
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async () => ({ ok: true, translation: 'x', explanation: 'y' }),
+    });
+    panel.append({ id: 1, english: 'Hello', videoTime: 1 });
+    rowsOf()[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(popup()).not.toBeNull();
+
+    panel.clear();
+    expect(popup()).toBeNull();
+  });
+});

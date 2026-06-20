@@ -24,6 +24,8 @@ export interface TranscriptPanel {
   setTranslation(id: number, japanese: string): void;
   /** 動画の現在再生位置（秒）から、いま再生中の行を判定して .active を付け替える。 */
   updateActiveByTime(currentTime: number): void;
+  /** 履歴を全消去する（別作品・別エピソードへ切り替えたときに呼ぶ）。 */
+  clear(): void;
   destroy(): void;
 }
 
@@ -339,6 +341,18 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (following) scrollActiveIntoView();
   }
 
+  // 履歴を全消去する（別作品・別エピソードへの切り替え時に呼ぶ）。行・対応表・
+  // アクティブ行・追従状態を初期化し、開いていればホバーカードも閉じる。
+  function clear(): void {
+    hideHoverPopup(); // 消える行を指したままのカードを残さない
+    list.replaceChildren();
+    rows.length = 0;
+    jaById.clear();
+    activeRow = null;
+    following = true; // 新しい作品は最下部へ追従させる
+    lastAutoScrollTop = -1;
+  }
+
   // --- マウント & 全画面追従 ---
   // Prime Video は全画面時に「全画面要素とその子孫」しか描画しないため、
   // body 直下のままだと履歴パネルが見えなくなる。overlay と同じく全画面要素の
@@ -360,5 +374,5 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
   document.addEventListener('keydown', onHoverKeyDown, true);
   attach();
-  return { append, setTranslation, updateActiveByTime, destroy };
+  return { append, setTranslation, updateActiveByTime, clear, destroy };
 }
