@@ -5,6 +5,7 @@ import {
   isSingleWord,
   cambridgeUrl,
   extractWordInfo,
+  extractCambridgeWordInfo,
 } from '../src/shared/dictionary';
 
 describe('normalizeWord', () => {
@@ -99,6 +100,28 @@ describe('extractWordInfo', () => {
     expect(extractWordInfo([{ title: 'No Definitions Found' }])).toEqual({
       ipa: null,
       audioUrl: null,
+    });
+  });
+});
+
+describe('extractCambridgeWordInfo', () => {
+  it('extracts IPA text and absolutized US mp3 URL from a Cambridge US section', () => {
+    const html = `
+      <html><body>
+        <span class="us dpron-i ">
+          <span class="region dreg">us</span>
+          <span class="daud">
+            <audio>
+              <source type="audio/mpeg" src="/media/english/us_pron/r/res/resil/resilient.mp3">
+              <source type="audio/ogg" src="/media/english/us_pron_ogg/r/res/resil/resilient.ogg">
+            </audio>
+          </span>
+          <span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">rɪˈzɪl.i.ənt</span>/</span>
+        </span>
+      </body></html>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: 'rɪˈzɪl.i.ənt',
+      audioUrl: 'https://dictionary.cambridge.org/media/english/us_pron/r/res/resil/resilient.mp3',
     });
   });
 });

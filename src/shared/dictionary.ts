@@ -79,3 +79,35 @@ export function extractWordInfo(json: unknown): WordInfo {
 
   return { ipa, audioUrl };
 }
+
+const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
+
+/**
+ * Cambridge 英英ページ HTML から US 発音セクションの IPA と mp3 URL を抽出する。
+ * IPA は主目的のため、IPA が取れなければ {null,null} を返す（呼び出し側はフォールバックする）。
+ * 音源 URL が相対パスなら絶対 URL 化する。失敗系は静かに {null,null}。
+ */
+export function extractCambridgeWordInfo(html: string): WordInfo {
+  if (!html) return { ipa: null, audioUrl: null };
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const us = doc.querySelector('span.us.dpron-i');
+    if (!us) return { ipa: null, audioUrl: null };
+
+    const ipa = us.querySelector('.ipa.dipa')?.textContent?.trim() || null;
+    if (!ipa) return { ipa: null, audioUrl: null };
+
+    const src = us.querySelector('source[type="audio/mpeg"]')?.getAttribute('src') ?? null;
+    const audioUrl = src ? absolutizeCambridgeUrl(src) : null;
+
+    return { ipa, audioUrl };
+  } catch {
+    return { ipa: null, audioUrl: null };
+  }
+}
+
+function absolutizeCambridgeUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith('/')) return `${CAMBRIDGE_BASE}${path}`;
+  return `${CAMBRIDGE_BASE}/${path}`;
+}
