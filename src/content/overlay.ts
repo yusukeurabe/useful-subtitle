@@ -77,8 +77,14 @@ const STYLES = `
   position: absolute; top: 6px; right: 8px; cursor: pointer; color: #aaa;
   font-size: 16px; line-height: 1;
 }
+.popup .pronounce {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
+}
+.popup .pronounce .audio-btn {
+  padding: 2px 8px; font-size: 14px; line-height: 1;
+}
 .popup .ipa {
-  color: #b9c4d6; font-size: 13px; margin: 0 0 8px;
+  color: #b9c4d6; font-size: 13px;
   font-family: "SF Mono", Menlo, Consolas, monospace;
 }
 .popup .actions { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
@@ -167,7 +173,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   let popup: HTMLDivElement | null = null;
   let popupBody: HTMLDivElement | null = null;
-  let popupIpa: HTMLDivElement | null = null;
+  let popupIpa: HTMLSpanElement | null = null;
   let popupSenses: HTMLDivElement | null = null;
   let popupAnchor: DOMRect | null = null;
   let popupSelection = '';
@@ -323,20 +329,26 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupSenses.style.display = 'none';
     p.appendChild(popupSenses);
 
-    popupIpa = document.createElement('div');
-    popupIpa.className = 'ipa';
-    popupIpa.style.display = 'none';
-    p.appendChild(popupIpa);
-
-    const actions = document.createElement('div');
-    actions.className = 'actions';
+    // 🔊 と IPA を 1 行に並べる（🔊 は常時、IPA は取得後のみ表示）。
+    const pronounce = document.createElement('div');
+    pronounce.className = 'pronounce';
 
     const audioBtn = document.createElement('button');
-    audioBtn.className = 'act-btn';
+    audioBtn.className = 'act-btn audio-btn';
     audioBtn.textContent = '🔊';
     audioBtn.title = '発音を再生';
     audioBtn.addEventListener('click', () => callbacks.onPlayAudio(popupSelection, popupAudioUrl));
-    actions.appendChild(audioBtn);
+    pronounce.appendChild(audioBtn);
+
+    popupIpa = document.createElement('span');
+    popupIpa.className = 'ipa';
+    popupIpa.style.display = 'none';
+    pronounce.appendChild(popupIpa);
+
+    p.appendChild(pronounce);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
 
     const link = document.createElement('a');
     link.className = 'act-link';
