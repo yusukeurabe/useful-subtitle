@@ -435,3 +435,39 @@ describe('createTranscriptPanel — clear() で履歴を全消去', () => {
     expect(popup()).toBeNull();
   });
 });
+
+describe('createTranscriptPanel — 履歴の手動消去ボタン', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+  });
+
+  function clearButton(): HTMLElement | null {
+    const host = document.getElementById(HOST_ID);
+    return host!.shadowRoot!.querySelector<HTMLElement>('.clear');
+  }
+
+  it('onClearHistory 指定時、ヘッダーに消去ボタンが表示される', () => {
+    panel = createTranscriptPanel({ onSeek: () => {}, onClearHistory: () => {} });
+    expect(clearButton()).not.toBeNull();
+  });
+
+  it('消去ボタンをクリックすると onClearHistory が1回呼ばれる', () => {
+    let calls = 0;
+    panel = createTranscriptPanel({ onSeek: () => {}, onClearHistory: () => { calls++; } });
+    clearButton()!.click();
+    expect(calls).toBe(1);
+  });
+
+  it('onClearHistory 未指定なら消去ボタンは表示されない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    expect(clearButton()).toBeNull();
+  });
+});
