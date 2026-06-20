@@ -124,4 +124,55 @@ describe('extractCambridgeWordInfo', () => {
       audioUrl: 'https://dictionary.cambridge.org/media/english/us_pron/r/res/resil/resilient.mp3',
     });
   });
+
+  it('returns nulls for empty html', () => {
+    expect(extractCambridgeWordInfo('')).toEqual({ ipa: null, audioUrl: null });
+  });
+
+  it('returns nulls when there is no US section', () => {
+    const html = `
+      <html><body>
+        <span class="uk dpron-i">
+          <span class="ipa dipa">rɪˈzɪl.i.ənt</span>
+        </span>
+      </body></html>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({ ipa: null, audioUrl: null });
+  });
+
+  it('returns ipa with null audio when US section has IPA but no mp3 source', () => {
+    const html = `
+      <html><body>
+        <span class="us dpron-i">
+          <span class="ipa dipa">rɪˈzɪl.i.ənt</span>
+        </span>
+      </body></html>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: 'rɪˈzɪl.i.ənt',
+      audioUrl: null,
+    });
+  });
+
+  it('rejects (returns nulls) when US section has audio but no IPA text', () => {
+    const html = `
+      <html><body>
+        <span class="us dpron-i">
+          <source type="audio/mpeg" src="/media/english/us_pron/x/x.mp3">
+        </span>
+      </body></html>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({ ipa: null, audioUrl: null });
+  });
+
+  it('keeps already-absolute audio URLs as-is', () => {
+    const html = `
+      <html><body>
+        <span class="us dpron-i">
+          <source type="audio/mpeg" src="https://cdn.example.com/r.mp3">
+          <span class="ipa dipa">rɪˈzɪl.i.ənt</span>
+        </span>
+      </body></html>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: 'rɪˈzɪl.i.ənt',
+      audioUrl: 'https://cdn.example.com/r.mp3',
+    });
+  });
 });
