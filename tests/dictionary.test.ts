@@ -156,7 +156,9 @@ describe('extractCambridgeWordInfo', () => {
     const html = `
       <html><body>
         <span class="us dpron-i">
-          <source type="audio/mpeg" src="/media/english/us_pron/x/x.mp3">
+          <audio>
+            <source type="audio/mpeg" src="/media/english/us_pron/x/x.mp3">
+          </audio>
         </span>
       </body></html>`;
     expect(extractCambridgeWordInfo(html)).toEqual({ ipa: null, audioUrl: null });
