@@ -57,4 +57,4 @@ npm run build      # esbuild → dist/
 
 ## ライセンス
 
-未設定（必要に応じて追加してください）。
+[MIT License](./LICENSE) — © 2026 Yusuke Urabe
