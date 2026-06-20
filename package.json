@@ -2,6 +2,7 @@
   "name": "useful-subtitle",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Amazon Prime Video 用の英語学習字幕拡張。字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説する Chrome 拡張機能（自分専用）。",
   "scripts": {
