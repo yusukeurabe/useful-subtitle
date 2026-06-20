@@ -2,10 +2,9 @@ import { handleRequest, type HandlerDeps } from './handler';
 import { getCached, setCached } from './cache';
 import { callAnthropic } from './aiClient';
 import { getSettings } from '../shared/settings';
-import { extractWordInfo, extractCambridgeWordInfo, type WordInfo } from '../shared/dictionary';
+import { extractWordInfo, extractCambridgeWordInfo, CAMBRIDGE_BASE, type WordInfo } from '../shared/dictionary';
 import type { RequestMessage } from '../shared/types';
 
-const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
 const DICT_API = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 
 /** Cambridge 英英ページから US の IPA と mp3 URL を取得する。未収録/失敗時は {null,null}。 */
@@ -22,10 +21,14 @@ async function tryCambridge(word: string): Promise<WordInfo> {
 
 /** 無料辞書 API（フォールバック）から IPA と mp3 URL を取得する。失敗時は {null,null}。 */
 async function tryDictionaryApi(word: string): Promise<WordInfo> {
-  const res = await fetch(`${DICT_API}${encodeURIComponent(word)}`);
-  if (!res.ok) return { ipa: null, audioUrl: null };
-  const json = (await res.json().catch(() => null)) as unknown;
-  return extractWordInfo(json);
+  try {
+    const res = await fetch(`${DICT_API}${encodeURIComponent(word)}`);
+    if (!res.ok) return { ipa: null, audioUrl: null };
+    const json = (await res.json().catch(() => null)) as unknown;
+    return extractWordInfo(json);
+  } catch {
+    return { ipa: null, audioUrl: null };
+  }
 }
 
 /**

@@ -26,7 +26,7 @@ export function isSingleWord(selection: string): boolean {
   return w.length > 0 && !/\s/.test(w);
 }
 
-const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
+export const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
 
 /** Cambridge（英英）の URL。単語は直接ページ、フレーズは検索エンドポイント。 */
 export function cambridgeUrl(selection: string): string {
