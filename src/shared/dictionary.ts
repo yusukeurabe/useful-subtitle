@@ -26,15 +26,15 @@ export function isSingleWord(selection: string): boolean {
   return w.length > 0 && !/\s/.test(w);
 }
 
-const CAMBRIDGE = 'https://dictionary.cambridge.org';
+const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
 
 /** Cambridge（英英）の URL。単語は直接ページ、フレーズは検索エンドポイント。 */
 export function cambridgeUrl(selection: string): string {
   const norm = normalizeWord(selection);
   if (isSingleWord(selection)) {
-    return `${CAMBRIDGE}/dictionary/english/${encodeURIComponent(norm)}`;
+    return `${CAMBRIDGE_BASE}/dictionary/english/${encodeURIComponent(norm)}`;
   }
-  return `${CAMBRIDGE}/search/direct/?datasetsearch=english&q=${encodeURIComponent(norm)}`;
+  return `${CAMBRIDGE_BASE}/search/direct/?datasetsearch=english&q=${encodeURIComponent(norm)}`;
 }
 
 interface RawPhonetic {
@@ -79,8 +79,6 @@ export function extractWordInfo(json: unknown): WordInfo {
 
   return { ipa, audioUrl };
 }
-
-const CAMBRIDGE_BASE = 'https://dictionary.cambridge.org';
 
 /**
  * Cambridge 英英ページ HTML から US 発音セクションの IPA と mp3 URL を抽出する。
