@@ -17,6 +17,8 @@ export interface TranscriptPanelCallbacks {
   onSeek: (videoTime: number) => void;
   /** 行に一定時間ホバーしたとき、その英文の意味（和訳＋解説）を取得する。 */
   onExplain?: (sentence: string) => Promise<TranscriptMeaning>;
+  /** ヘッダーの消去ボタンクリックで履歴を全消去する（未指定ならボタンを出さない）。 */
+  onClearHistory?: () => void;
 }
 
 export interface TranscriptPanel {
@@ -24,6 +26,8 @@ export interface TranscriptPanel {
   setTranslation(id: number, japanese: string): void;
   /** 動画の現在再生位置（秒）から、いま再生中の行を判定して .active を付け替える。 */
   updateActiveByTime(currentTime: number): void;
+  /** 履歴を全消去する（別作品・別エピソードへ切り替えたときに呼ぶ）。 */
+  clear(): void;
   destroy(): void;
 }
 
@@ -58,6 +62,9 @@ const STYLES = `
   padding: 8px 12px; font-size: 13px; font-weight: 700; border-bottom: 1px solid #444;
 }
 .header .x { cursor: pointer; color: #aaa; font-size: 16px; line-height: 1; }
+.header .actions { display: flex; align-items: center; gap: 10px; }
+.header .clear { cursor: pointer; color: #aaa; font-size: 15px; line-height: 1; }
+.header .clear:hover { color: #fff; }
 .list { flex: 1 1 auto; overflow-y: auto; padding: 6px 0; }
 .row {
   padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -114,7 +121,19 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   closeX.className = 'x';
   closeX.textContent = '×';
   closeX.title = 'パネルを閉じる';
-  header.append(title, closeX);
+  // 右側のボタン群。space-between で散らばらないよう1つにまとめる（🗑 を × の左隣に置く）。
+  const actions = document.createElement('span');
+  actions.className = 'actions';
+  if (cb.onClearHistory) {
+    const clearBtn = document.createElement('span');
+    clearBtn.className = 'clear';
+    clearBtn.textContent = '🗑';
+    clearBtn.title = '履歴をすべて消す';
+    clearBtn.addEventListener('click', () => cb.onClearHistory?.());
+    actions.append(clearBtn);
+  }
+  actions.append(closeX);
+  header.append(title, actions);
   const list = document.createElement('div');
   list.className = 'list';
   panel.append(header, list);
@@ -339,6 +358,18 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (following) scrollActiveIntoView();
   }
 
+  // 履歴を全消去する（別作品・別エピソードへの切り替え時に呼ぶ）。行・対応表・
+  // アクティブ行・追従状態を初期化し、開いていればホバーカードも閉じる。
+  function clear(): void {
+    hideHoverPopup(); // 消える行を指したままのカードを残さない
+    list.replaceChildren();
+    rows.length = 0;
+    jaById.clear();
+    activeRow = null;
+    following = true; // 新しい作品は最下部へ追従させる
+    lastAutoScrollTop = -1;
+  }
+
   // --- マウント & 全画面追従 ---
   // Prime Video は全画面時に「全画面要素とその子孫」しか描画しないため、
   // body 直下のままだと履歴パネルが見えなくなる。overlay と同じく全画面要素の
@@ -360,5 +391,5 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
   document.addEventListener('keydown', onHoverKeyDown, true);
   attach();
-  return { append, setTranslation, updateActiveByTime, destroy };
+  return { append, setTranslation, updateActiveByTime, clear, destroy };
 }
