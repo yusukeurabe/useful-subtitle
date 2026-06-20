@@ -29,7 +29,19 @@ async function main(): Promise<void> {
     },
   );
 
-  const panel: TranscriptPanel | null = settings.showTranscriptPanel
+  // 履歴への重複記録を防ぐ記録ポリシー。履歴クリックや再生バーで過去へ巻き戻して
+  // 記録済み範囲を再生し直す間は記録せず、記録済み地点を追い越したら記録を再開する。
+  // 消去ボタンより先に宣言しておく（onClearHistory から参照するため）。
+  const recorder = createTranscriptRecorder();
+
+  // 履歴パネル。消去ボタン（onClearHistory）は履歴の全消去＋記録位置の初期化を束ねる。
+  // 押下後に再生された字幕からまた記録が始まる。panel 自身を参照するので let で先に宣言する。
+  let panel: TranscriptPanel | null = null;
+  const clearHistory = (): void => {
+    panel?.clear();
+    recorder.reset();
+  };
+  panel = settings.showTranscriptPanel
     ? createTranscriptPanel({
         onSeek: seekVideo,
         onExplain: async (sentence) => {
@@ -38,13 +50,10 @@ async function main(): Promise<void> {
           const { translation, explanation } = parseSentenceMeaning(res.text);
           return { ok: true, translation, explanation };
         },
+        onClearHistory: clearHistory,
       })
     : null;
   let entryId = 0;
-
-  // 履歴への重複記録を防ぐ記録ポリシー。履歴クリックや再生バーで過去へ巻き戻して
-  // 記録済み範囲を再生し直す間は記録せず、記録済み地点を追い越したら記録を再開する。
-  const recorder = createTranscriptRecorder();
   // 別作品・別エピソードへの切り替えを見分ける検出器（URL の作品コード＋本編の尺）。
   // 広告では発火しない（id も本編の尺も変わらない）ので、広告で履歴を誤って消さない。
   const titleSwitch = createTitleSwitchDetector();
