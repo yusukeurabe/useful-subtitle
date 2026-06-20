@@ -6,7 +6,8 @@
   "permissions": ["storage", "offscreen"],
   "host_permissions": [
     "https://api.anthropic.com/*",
-    "https://api.dictionaryapi.dev/*"
+    "https://api.dictionaryapi.dev/*",
+    "https://dictionary.cambridge.org/*"
   ],
   "background": {
     "service_worker": "background.js"
