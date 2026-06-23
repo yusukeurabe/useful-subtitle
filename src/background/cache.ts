@@ -10,6 +10,13 @@ const SEP = '␟';
 const STORAGE_PREFIX = 'cache:';
 
 /**
+ * explainSelection プロンプトのバージョン。プロンプト形式を変更したら必ず上げる。
+ * 過去キャッシュは別キーに移るので破棄され、新プロンプトで再生成される。
+ * （古いエントリは storage に残るが orphan として無視される。）
+ */
+const EXPLANATION_PROMPT_VERSION = 'v2';
+
+/**
  * リクエスト内容＋モデル＋（解説の）言語から決定的なキャッシュキーを作る。
  * モデルや言語が変わると別エントリになり、古い結果が混ざらない。
  */
@@ -24,7 +31,7 @@ export function makeCacheKey(
   if (req.type === 'explainSentence') {
     return ['s', model, language, req.text].join(SEP);
   }
-  return ['e', model, language, req.selection, req.context].join(SEP);
+  return ['e', EXPLANATION_PROMPT_VERSION, model, language, req.selection, req.context].join(SEP);
 }
 
 /** Service Worker の生存中だけ有効な高速メモリ層。 */

@@ -65,6 +65,29 @@ describe('buildExplanationPrompt', () => {
     expect(system).toMatch(/3つ/);
     expect(system).toContain('・');
   });
+
+  // gauntlet など慣用句に強い単語で、LLM が文脈に引きずられて訳:形式を返し
+  // pos=null になる事故を防ぐため、単語選択時は訳:形式自体を見せない。
+  it('does not expose the phrase 訳 format when the selection is a single word', () => {
+    const { system } = buildExplanationPrompt('gauntlet', 'throw down the gauntlet', 'ja');
+    expect(system).not.toContain('訳:');
+  });
+
+  it('instructs to keep the word format even when the word is part of an idiom', () => {
+    const { system } = buildExplanationPrompt('gauntlet', 'throw down the gauntlet', 'ja');
+    expect(system).toMatch(/慣用句|句動詞|イディオム/);
+  });
+
+  it('does not list POS codes when the selection is a phrase', () => {
+    const { system } = buildExplanationPrompt('break a leg', 'a sentence', 'ja');
+    expect(system).not.toContain('N[C]');
+    expect(system).not.toContain('V[I]');
+  });
+
+  it('labels the user message as 単語 / フレーズ to match the system prompt', () => {
+    expect(buildExplanationPrompt('gauntlet', 'x', 'ja').user).toContain('単語');
+    expect(buildExplanationPrompt('break a leg', 'x', 'ja').user).toContain('フレーズ');
+  });
 });
 
 describe('buildSentenceMeaningPrompt', () => {

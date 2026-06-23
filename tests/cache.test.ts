@@ -52,6 +52,18 @@ describe('makeCacheKey', () => {
     const en = makeCacheKey({ type: 'explainSentence', text: 'run' }, model, 'en');
     expect(ja).not.toBe(en);
   });
+
+  // 解説プロンプトの形式を変えたとき、過去キャッシュが混ざらないようバージョン付きキーになる。
+  it('explainSelection key carries a prompt-version segment after the prefix', () => {
+    const key = makeCacheKey(
+      { type: 'explainSelection', selection: 'run', context: 'I run' },
+      model,
+      'ja',
+    );
+    const [prefix, version] = key.split('␟');
+    expect(prefix).toBe('e');
+    expect(version).toMatch(/^v\d+$/);
+  });
 });
 
 describe('cache store', () => {
