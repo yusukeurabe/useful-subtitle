@@ -2,17 +2,43 @@ import { handleRequest, type HandlerDeps } from './handler';
 import { getCached, setCached } from './cache';
 import { callAnthropic } from './aiClient';
 import { getSettings } from '../shared/settings';
-import { extractWordInfo, type WordInfo } from '../shared/dictionary';
+import { extractWordInfo, extractCambridgeWordInfo, CAMBRIDGE_BASE, type WordInfo } from '../shared/dictionary';
 import type { RequestMessage } from '../shared/types';
 
 const DICT_API = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 
-/** 無料辞書APIから単語の IPA＋音源URLを取得する。失敗時は {null,null}。 */
+/** Cambridge 英英ページから US の IPA と mp3 URL を取得する。未収録/失敗時は {null,null}。 */
+async function tryCambridge(word: string): Promise<WordInfo> {
+  try {
+    const res = await fetch(`${CAMBRIDGE_BASE}/dictionary/english/${encodeURIComponent(word)}`);
+    if (!res.ok) return { ipa: null, audioUrl: null };
+    const html = await res.text();
+    return extractCambridgeWordInfo(html);
+  } catch {
+    return { ipa: null, audioUrl: null };
+  }
+}
+
+/** 無料辞書 API（フォールバック）から IPA と mp3 URL を取得する。失敗時は {null,null}。 */
+async function tryDictionaryApi(word: string): Promise<WordInfo> {
+  try {
+    const res = await fetch(`${DICT_API}${encodeURIComponent(word)}`);
+    if (!res.ok) return { ipa: null, audioUrl: null };
+    const json = (await res.json().catch(() => null)) as unknown;
+    return extractWordInfo(json);
+  } catch {
+    return { ipa: null, audioUrl: null };
+  }
+}
+
+/**
+ * Cambridge を一次、dictionaryapi.dev をフォールバックとして単語の IPA＋音源 URL を返す。
+ * Cambridge で IPA が取れたら音源 null でも採用する（部分採用＝音源は TTS フォールバックで埋まる）。
+ */
 async function getWordInfo(word: string): Promise<WordInfo> {
-  const res = await fetch(`${DICT_API}${encodeURIComponent(word)}`);
-  if (!res.ok) return { ipa: null, audioUrl: null };
-  const json = (await res.json().catch(() => null)) as unknown;
-  return extractWordInfo(json);
+  const cam = await tryCambridge(word);
+  if (cam.ipa) return cam;
+  return tryDictionaryApi(word);
 }
 
 // offscreen ドキュメントは1つだけ生成可。生成を直列化し、既存ならエラーを無視。

@@ -60,7 +60,13 @@ export type RequestMessage =
   | PlayAudioRequest;
 
 /** service worker → content script のレスポンス。 */
-export type ErrorCode = 'NO_API_KEY' | 'AUTH' | 'RATE_LIMIT' | 'NETWORK' | 'UNKNOWN';
+export type ErrorCode =
+  | 'NO_API_KEY'
+  | 'AUTH'
+  | 'RATE_LIMIT'
+  | 'NETWORK'
+  | 'CONTEXT_INVALIDATED'
+  | 'UNKNOWN';
 
 export interface SuccessResponse {
   ok: true;
