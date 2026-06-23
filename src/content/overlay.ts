@@ -1,7 +1,7 @@
 import type { Token } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
 import { CAPTION_TEXT_SELECTORS } from '../shared/selectors';
-import { cambridgeUrl } from '../shared/dictionary';
+import { cambridgeUrl, formatIpaForDisplay } from '../shared/dictionary';
 
 export interface OverlayCallbacks {
   /** 単語クリック or フレーズ選択が確定したとき。anchor は対象語のビューポート座標。 */
@@ -405,8 +405,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   function setPopupWordInfo(ipa: string | null, audioUrl: string | null): void {
     popupAudioUrl = audioUrl;
     if (!popupIpa) return;
-    if (ipa) {
-      popupIpa.textContent = ipa;
+    const display = ipa ? formatIpaForDisplay(ipa) : '';
+    if (display) {
+      popupIpa.textContent = display;
       popupIpa.style.display = '';
     } else {
       popupIpa.textContent = '';

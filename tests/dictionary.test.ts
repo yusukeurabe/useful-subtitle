@@ -1,4 +1,3 @@
-// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import {
   normalizeWord,
@@ -6,6 +5,7 @@ import {
   cambridgeUrl,
   extractWordInfo,
   extractCambridgeWordInfo,
+  formatIpaForDisplay,
 } from '../src/shared/dictionary';
 
 describe('normalizeWord', () => {
@@ -176,5 +176,56 @@ describe('extractCambridgeWordInfo', () => {
       ipa: 'rɪˈzɪl.i.ənt',
       audioUrl: 'https://cdn.example.com/r.mp3',
     });
+  });
+
+  // 実 HTML 構造の回帰テスト：Cambridge の "around" ページ抜粋。
+  // UK ブロックが先に並ぶページでも US が選ばれること、UK の mp3 を誤って拾わないこと、
+  // 入れ子の <span class="pron dpron"> 越しに `.ipa.dipa` の中身だけ拾えることを確認する。
+  it('extracts the US IPA from a real Cambridge "around"-style slice (UK before US)', () => {
+    const html = `
+      <span class="uk dpron-i ">
+        <span class="region dreg">uk</span>
+        <span class="daud">
+          <audio>
+            <source type="audio/mpeg" src="/media/english/uk_pron/u/uka/ukarm/ukarmho014.mp3"/>
+          </audio>
+        </span>
+        <span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">əˈraʊnd</span>/</span>
+      </span>
+      <span class="us dpron-i ">
+        <span class="region dreg">us</span>
+        <span class="daud">
+          <audio>
+            <source type="audio/mpeg" src="/media/english/us_pron/a/aro/aroun/around.mp3"/>
+          </audio>
+        </span>
+        <span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">əˈraʊnd</span>/</span>
+      </span>
+      <div class="lmt--5"></div>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: 'əˈraʊnd',
+      audioUrl:
+        'https://dictionary.cambridge.org/media/english/us_pron/a/aro/aroun/around.mp3',
+    });
+  });
+});
+
+describe('formatIpaForDisplay', () => {
+  it('wraps a bare IPA in slashes', () => {
+    expect(formatIpaForDisplay('əˈraʊnd')).toBe('/əˈraʊnd/');
+  });
+  it('keeps the existing wrapping when the IPA already has slashes', () => {
+    expect(formatIpaForDisplay('/həˈloʊ/')).toBe('/həˈloʊ/');
+  });
+  it('trims surrounding whitespace before wrapping', () => {
+    expect(formatIpaForDisplay('  əˈraʊnd  ')).toBe('/əˈraʊnd/');
+  });
+  it('strips multiple leading/trailing slashes and re-wraps once', () => {
+    expect(formatIpaForDisplay('//əˈraʊnd//')).toBe('/əˈraʊnd/');
+  });
+  it('returns empty for empty / slash-only input (caller decides to hide)', () => {
+    expect(formatIpaForDisplay('')).toBe('');
+    expect(formatIpaForDisplay('   ')).toBe('');
+    expect(formatIpaForDisplay('//')).toBe('');
   });
 });
