@@ -8,6 +8,8 @@ export interface OverlayCallbacks {
   onLookup: (selection: string, sentence: string, anchor: DOMRect) => void;
   /** ポップアップの🔊が押されたとき。audioUrl は先読み済みネイティブ音源（無ければ null）。 */
   onPlayAudio: (selection: string, audioUrl: string | null) => void;
+  /** 字幕先頭の▶が押されたとき。引数はその字幕が現れた瞬間の動画位置（秒）。 */
+  onSeek: (videoTime: number) => void;
 }
 
 export interface OverlayOptions {
@@ -23,7 +25,7 @@ export type TranslationState =
   | { kind: 'none' };
 
 export interface Overlay {
-  renderLine(sentence: string, tokens: Token[]): void;
+  renderLine(sentence: string, tokens: Token[], videoTime: number): void;
   clearLine(): void;
   setTranslation(state: TranslationState): void;
   openPopup(anchor: DOMRect, selection: string): void;
@@ -41,9 +43,19 @@ const STYLES = `
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 .original {
+  position: relative; display: inline-block;
   font-size: clamp(20px, 3.2vw, 40px); font-weight: 700; line-height: 1.3;
   color: #fff; text-shadow: 0 0 4px #000, 0 2px 6px #000;
 }
+.replay-btn {
+  position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border-radius: 6px; border: none;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 13px; line-height: 1;
+  cursor: pointer; pointer-events: auto;
+  opacity: 0; transition: opacity 0.2s;
+}
+.subtitle:hover .replay-btn { opacity: 0.9; }
+.replay-btn:hover { background: rgba(86, 156, 255, 0.85); }
 .word { cursor: pointer; border-radius: 4px; padding: 0 1px; }
 .word:hover { background: rgba(255, 255, 255, 0.28); }
 .word.selected { background: rgba(86, 156, 255, 0.6); }
@@ -179,6 +191,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let popupSelection = '';
   let popupAudioUrl: string | null = null;
   let currentSentence = '';
+  // 現在表示中の字幕が現れた瞬間の動画位置（秒）。▶クリックでこの値にシークする。
+  let currentLineVideoTime = 0;
   let wordRefs: WordRef[] = [];
   let dragStart = -1;
   let dragEnd = -1;
@@ -234,11 +248,21 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (e.key === 'Escape') hidePopup();
   };
 
-  function renderLine(sentence: string, tokens: Token[]): void {
+  function renderLine(sentence: string, tokens: Token[], videoTime: number): void {
     currentSentence = sentence;
+    currentLineVideoTime = videoTime;
     hidePopup();
     original.replaceChildren();
     wordRefs = [];
+
+    // 字幕の頭から再生する▶ボタン。.original の左外に絶対配置で並ぶ（テキスト中央を崩さない）。
+    const replayBtn = document.createElement('button');
+    replayBtn.className = 'replay-btn';
+    replayBtn.textContent = '▶';
+    replayBtn.title = '字幕の頭から再生';
+    replayBtn.addEventListener('click', () => callbacks.onSeek(currentLineVideoTime));
+    original.appendChild(replayBtn);
+
     for (const t of tokens) {
       if (!t.isWord) {
         original.appendChild(document.createTextNode(t.text));
@@ -263,6 +287,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   function clearLine(): void {
     original.replaceChildren();
     wordRefs = [];
+    currentLineVideoTime = 0;
     setTranslation({ kind: 'none' });
     hidePopup();
   }
