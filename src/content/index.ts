@@ -22,6 +22,7 @@ async function main(): Promise<void> {
       onLookup: (selection, sentence, anchor) =>
         void runLookup(overlay, settings, selection, sentence, anchor),
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
+      onSeek: seekVideo,
     },
     {
       bottomPercent: settings.subtitleBottomPercent,
@@ -108,11 +109,13 @@ async function main(): Promise<void> {
     }
     const text = settings.truecaseSubtitle ? toTrueCase(raw) : raw;
     currentText = text;
-    overlay.renderLine(text, tokenizeLine(text));
+    // 字幕が現れた瞬間の動画位置を一度だけ読み、overlay の▶（字幕の頭から再生）と
+    // 履歴記録の両方で同じ値を使う（クリック先がブレないように）。
+    const videoTime = findVideo()?.currentTime ?? 0;
+    overlay.renderLine(text, tokenizeLine(text), videoTime);
 
     // 巻き戻して記録済み範囲を再生し直している間は履歴へ重複記録しない。
     // 画面上の字幕・翻訳（overlay）は再視聴中も従来どおり表示する。
-    const videoTime = findVideo()?.currentTime ?? 0;
     const recordedId = panel && recorder.shouldRecord(videoTime) ? ++entryId : null;
     if (recordedId !== null) {
       panel?.append({ id: recordedId, english: text, videoTime });
