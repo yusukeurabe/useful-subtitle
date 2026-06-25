@@ -178,6 +178,28 @@ describe('extractCambridgeWordInfo', () => {
     });
   });
 
+  // 実 HTML 構造の回帰テスト：Cambridge の "interrogation" ページ抜粋。
+  // -tion 系では .ipa.dipa の中に <span class="sp dsp">ə</span> が入れ子で挟まり、
+  // その直後に "n" が続く。非貪欲な単発正規表現だと最初の </span> で止まり末尾 "n" を
+  // 取りこぼす（実機で /ɪnˌter.əˈɡeɪ.ʃə/ になる）回帰。
+  it('extracts the full IPA when the dipa span has a nested <span> (e.g. -tion words)', () => {
+    const html = `
+      <span class="us dpron-i ">
+        <span class="region dreg">us</span>
+        <span class="daud">
+          <audio>
+            <source type="audio/mpeg" src="/media/english/us_pron/i/int/inter/interrogation.mp3"/>
+          </audio>
+        </span>
+        <span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">ɪnˌter.əˈɡeɪ.ʃ<span class="sp dsp">ə</span>n</span>/</span>
+      </span>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: 'ɪnˌter.əˈɡeɪ.ʃən',
+      audioUrl:
+        'https://dictionary.cambridge.org/media/english/us_pron/i/int/inter/interrogation.mp3',
+    });
+  });
+
   // 実 HTML 構造の回帰テスト：Cambridge の "around" ページ抜粋。
   // UK ブロックが先に並ぶページでも US が選ばれること、UK の mp3 を誤って拾わないこと、
   // 入れ子の <span class="pron dpron"> 越しに `.ipa.dipa` の中身だけ拾えることを確認する。

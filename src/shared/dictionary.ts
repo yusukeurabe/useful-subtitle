@@ -117,12 +117,31 @@ function sliceCambridgeUsBlock(html: string): string | null {
 }
 
 function extractCambridgeIpa(block: string): string | null {
-  // <span class="... ipa ... dipa ...">CONTENT</span> の CONTENT 内側のタグを剥がして trim
-  const m = block.match(
-    /<span\s+class="(?=[^"]*\bipa\b)(?=[^"]*\bdipa\b)[^"]*"[^>]*>([\s\S]*?)<\/span>/i,
-  );
-  if (!m) return null;
-  const text = m[1].replace(/<[^>]*>/g, '').trim();
+  // <span class="... ipa ... dipa ...">CONTENT</span> の CONTENT を取り出す。
+  // -tion / -sion などは CONTENT 内に <span class="sp dsp">ə</span> が入れ子で挟まる
+  // ため、非貪欲な単発の正規表現だと最初の </span> で止まり末尾 ("n" 等) を落とす。
+  // 開きタグ位置から <span>/</span> を数えて対応する閉じタグを探す。
+  const openRe = /<span\s+class="(?=[^"]*\bipa\b)(?=[^"]*\bdipa\b)[^"]*"[^>]*>/i;
+  const openM = block.match(openRe);
+  if (!openM || openM.index === undefined) return null;
+  const contentStart = openM.index + openM[0].length;
+
+  let depth = 1;
+  let contentEnd = -1;
+  for (const tag of block.matchAll(/<(\/?)span\b[^>]*>/gi)) {
+    if (tag.index === undefined || tag.index < contentStart) continue;
+    if (tag[1] === '/') {
+      depth--;
+      if (depth === 0) {
+        contentEnd = tag.index;
+        break;
+      }
+    } else {
+      depth++;
+    }
+  }
+  if (contentEnd < 0) return null;
+  const text = block.slice(contentStart, contentEnd).replace(/<[^>]*>/g, '').trim();
   return text || null;
 }
 
