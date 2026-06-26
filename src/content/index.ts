@@ -10,7 +10,7 @@ import { playPronunciation } from './audio';
 import { findVideo, seekVideo } from './videoControl';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
-import { parseSentenceMeaning } from '../shared/explanation';
+import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
 
 async function main(): Promise<void> {
   const settings = await getSettings();
@@ -45,6 +45,16 @@ async function main(): Promise<void> {
   panel = settings.showTranscriptPanel
     ? createTranscriptPanel({
         onSeek: seekVideo,
+        onExplainWord: async (word, sentence) => {
+          const res = await sendRequest({
+            type: 'explainSelection',
+            selection: word,
+            context: sentence,
+          });
+          if (!res.ok) return { ok: false, error: res.error };
+          const { senses, explanation } = parseExplanation(res.text);
+          return { ok: true, senses, explanation };
+        },
         onExplain: async (sentence) => {
           const res = await sendRequest({ type: 'explainSentence', text: sentence });
           if (!res.ok) return { ok: false, error: res.error };

@@ -5,9 +5,15 @@ import {
   nextFollowState,
   type TranscriptPanel,
   type TranscriptMeaning,
+  type TranscriptWordMeaning,
 } from '../src/content/transcriptPanel';
 
 const HOST_ID = 'useful-subtitle-transcript';
+
+/** 行内の単語 span を取得する（ホバー対象）。 */
+function wordsOf(row: HTMLDivElement): HTMLSpanElement[] {
+  return Array.from(row.querySelectorAll<HTMLSpanElement>('.en .word'));
+}
 
 /** jsdom には Fullscreen API が無いので fullscreenElement を差し替えてイベントを発火する。 */
 function setFullscreen(el: Element | null): void {
@@ -239,7 +245,7 @@ describe('createTranscriptPanel — クリックでシーク', () => {
     panel.append({ id: 1, english: 'Hello', videoTime: 7 });
     const row = rowsOf()[0];
 
-    row.dispatchEvent(new Event('mouseenter'));
+    wordsOf(row)[0].dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500);
     expect(popup()).not.toBeNull(); // ポップアップが出ている状態でも…
 
@@ -248,7 +254,7 @@ describe('createTranscriptPanel — クリックでシーク', () => {
   });
 });
 
-describe('createTranscriptPanel — ホバーで文の意味', () => {
+describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（上=単語 / 下=文）', () => {
   let panel: TranscriptPanel | null = null;
 
   beforeEach(() => {
@@ -272,57 +278,115 @@ describe('createTranscriptPanel — ホバーで文の意味', () => {
     return host!.shadowRoot!.querySelector<HTMLDivElement>('.hover-popup');
   }
 
-  it('ドウェル時間が過ぎると onExplain が呼ばれ和訳・解説が出る', async () => {
-    const calls: string[] = [];
+  it('英文は単語ごとの .word span に分解される（記号は分解しない）', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: "Break a leg, friend!", videoTime: 1 });
+    const ws = wordsOf(rowsOf()[0]).map((s) => s.textContent);
+    expect(ws).toEqual(['Break', 'a', 'leg', 'friend']);
+  });
+
+  it('単語にホバーするとドウェル後に onExplainWord と onExplain が両方呼ばれる', async () => {
+    const wordCalls: Array<[string, string]> = [];
+    const sentCalls: string[] = [];
     panel = createTranscriptPanel({
       onSeek: () => {},
+      onExplainWord: async (w, s) => {
+        wordCalls.push([w, s]);
+        return { ok: true, senses: [{ pos: 'V[I/T]', gloss: '壊す・破る' }], explanation: '単語の解説' };
+      },
       onExplain: async (s) => {
-        calls.push(s);
-        return { ok: true, translation: '和訳テキスト', explanation: '解説テキスト' };
+        sentCalls.push(s);
+        return { ok: true, translation: '頑張って！', explanation: '舞台前のイディオム。' };
       },
     });
     panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
-    const row = rowsOf()[0];
+    const [breakSpan] = wordsOf(rowsOf()[0]);
 
-    row.dispatchEvent(new Event('mouseenter'));
+    breakSpan.dispatchEvent(new Event('mouseenter'));
     expect(popup()).toBeNull(); // ドウェル前は出ない
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(calls).toEqual(['Break a leg!']);
-    const p = popup();
-    expect(p).not.toBeNull();
-    expect(p!.textContent).toContain('和訳テキスト');
-    expect(p!.textContent).toContain('解説テキスト');
+    expect(wordCalls).toEqual([['Break', 'Break a leg!']]);
+    expect(sentCalls).toEqual(['Break a leg!']);
   });
 
-  it('ドウェル前に離れると onExplain は呼ばれない', async () => {
-    let called = 0;
+  it('上段に単語＋品詞別訳、下段に和訳と解説が出る', async () => {
     panel = createTranscriptPanel({
       onSeek: () => {},
-      onExplain: async () => {
-        called++;
-        return { ok: true, translation: 'x', explanation: 'y' };
-      },
+      onExplainWord: async () => ({
+        ok: true,
+        senses: [{ pos: 'V[I/T]', gloss: '壊す・破る' }],
+        explanation: '単語ノート',
+      }),
+      onExplain: async () => ({ ok: true, translation: '頑張って！', explanation: '舞台前のイディオム。' }),
+    });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    const p = popup();
+    expect(p).not.toBeNull();
+    const sections = p!.querySelectorAll('.hp-section');
+    expect(sections).toHaveLength(2);
+    // 上段＝単語セクション
+    expect(sections[0].querySelector('.hp-word-head')?.textContent).toBe('Break');
+    expect(sections[0].textContent).toContain('V[I/T]');
+    expect(sections[0].textContent).toContain('壊す・破る');
+    expect(sections[0].textContent).toContain('単語ノート');
+    // 下段＝文セクション
+    expect(sections[1].textContent).toContain('頑張って！');
+    expect(sections[1].textContent).toContain('舞台前のイディオム。');
+  });
+
+  it('単語の応答だけ先に来てもポップアップは出る（文側はローディング表示が残る）', async () => {
+    let resolveSent: (v: TranscriptMeaning) => void = () => {};
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '単語だけ' }),
+      onExplain: () => new Promise<TranscriptMeaning>((r) => { resolveSent = r; }),
+    });
+    panel.append({ id: 1, english: 'Hello', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    const p = popup();
+    expect(p!.textContent).toContain('単語だけ');
+    expect(p!.querySelector('.loading')).not.toBeNull(); // 文側は thinking…
+
+    resolveSent({ ok: true, translation: '後から来た和訳', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(popup()!.textContent).toContain('後から来た和訳');
+  });
+
+  it('ドウェル前に行を離れると onExplain も onExplainWord も呼ばれない', async () => {
+    let wordCalls = 0;
+    let sentCalls = 0;
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => { wordCalls++; return { ok: true, senses: [], explanation: '' }; },
+      onExplain: async () => { sentCalls++; return { ok: true, translation: 'x', explanation: 'y' }; },
     });
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
     const row = rowsOf()[0];
 
-    row.dispatchEvent(new Event('mouseenter'));
+    wordsOf(row)[0].dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(200);
     row.dispatchEvent(new Event('mouseleave'));
     await vi.advanceTimersByTimeAsync(500);
 
-    expect(called).toBe(0);
+    expect(wordCalls).toBe(0);
+    expect(sentCalls).toBe(0);
     expect(popup()).toBeNull();
   });
 
-  it('エラー応答は赤字(.err)で表示する', async () => {
+  it('エラー応答は赤字(.err)で表示する（単語側）', async () => {
     panel = createTranscriptPanel({
       onSeek: () => {},
-      onExplain: async () => ({ ok: false, error: 'APIキーが未設定です。' }),
+      onExplainWord: async () => ({ ok: false, error: 'APIキーが未設定です。' }),
+      onExplain: async () => ({ ok: true, translation: 'x', explanation: '' }),
     });
     panel.append({ id: 1, english: 'X', videoTime: 1 });
-    rowsOf()[0].dispatchEvent(new Event('mouseenter'));
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500);
 
     const p = popup();
@@ -330,31 +394,92 @@ describe('createTranscriptPanel — ホバーで文の意味', () => {
     expect(p!.querySelector('.err')).not.toBeNull();
   });
 
-  it('別の行へ移ると古い応答は無視され、最後の行の意味が残る', async () => {
-    let resolveFirst: (v: TranscriptMeaning) => void = () => {};
+  it('別の単語へ移ると古い応答は無視され、最後にホバーした単語の意味だけが残る', async () => {
+    let resolveFirstWord: (v: TranscriptWordMeaning) => void = () => {};
     panel = createTranscriptPanel({
       onSeek: () => {},
-      onExplain: (s) => {
-        if (s === 'first') return new Promise<TranscriptMeaning>((r) => { resolveFirst = r; });
-        return Promise.resolve({ ok: true, translation: 'SECOND', explanation: 'second expl' });
+      onExplainWord: (w) => {
+        if (w === 'first') return new Promise<TranscriptWordMeaning>((r) => { resolveFirstWord = r; });
+        return Promise.resolve({ ok: true, senses: [{ pos: 'N[C]', gloss: 'SECOND-訳' }], explanation: 'SECOND-解説' });
       },
+      onExplain: async () => ({ ok: true, translation: 'sent', explanation: '' }),
     });
-    panel.append({ id: 1, english: 'first', videoTime: 1 });
-    panel.append({ id: 2, english: 'second', videoTime: 2 });
-    const [r1, r2] = rowsOf();
+    panel.append({ id: 1, english: 'first second', videoTime: 1 });
+    const [firstSpan, secondSpan] = wordsOf(rowsOf()[0]);
 
-    r1.dispatchEvent(new Event('mouseenter'));
+    firstSpan.dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500); // first 要求中（未解決）
-    r1.dispatchEvent(new Event('mouseleave'));
-    r2.dispatchEvent(new Event('mouseenter')); // r1 の閉じる猶予をキャンセル
-    await vi.advanceTimersByTimeAsync(500); // second 解決→描画
+    secondSpan.dispatchEvent(new Event('mouseenter')); // 表示中なので即時切替
+    await vi.advanceTimersByTimeAsync(0); // second 解決→描画
 
-    resolveFirst({ ok: true, translation: 'FIRST', explanation: 'first expl' });
+    resolveFirstWord({ ok: true, senses: [{ pos: 'V[I]', gloss: 'FIRST-訳' }], explanation: 'FIRST-解説' });
     await vi.advanceTimersByTimeAsync(0);
 
     const p = popup();
-    expect(p!.textContent).toContain('SECOND');
-    expect(p!.textContent).not.toContain('FIRST');
+    expect(p!.textContent).toContain('SECOND-訳');
+    expect(p!.textContent).not.toContain('FIRST-訳');
+  });
+
+  it('ポップアップ表示中に別の単語へ移ると、ドウェル待ちなしで即時切替する', async () => {
+    const seen: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async (w) => {
+        seen.push(w);
+        return { ok: true, senses: [], explanation: `expl:${w}` };
+      },
+      onExplain: async () => ({ ok: true, translation: 't', explanation: '' }),
+    });
+    panel.append({ id: 1, english: 'one two three', videoTime: 1 });
+    const [one, two, three] = wordsOf(rowsOf()[0]);
+
+    one.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500); // ドウェル後に open
+    expect(popup()).not.toBeNull();
+    expect(seen).toEqual(['one']);
+
+    two.dispatchEvent(new Event('mouseenter')); // 即時切替
+    await vi.advanceTimersByTimeAsync(0);
+    three.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(seen).toEqual(['one', 'two', 'three']);
+    expect(popup()!.textContent).toContain('three');
+  });
+
+  it('onExplainWord のみ指定なら下段（文セクション）は出ない', async () => {
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [{ pos: 'N[C]', gloss: 'x' }], explanation: '' }),
+    });
+    panel.append({ id: 1, english: 'Solo', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(popup()!.querySelectorAll('.hp-section')).toHaveLength(1);
+  });
+
+  it('onExplain のみ指定なら上段（単語セクション）は出ない（後方互換）', async () => {
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async () => ({ ok: true, translation: '和訳のみ', explanation: '' }),
+    });
+    panel.append({ id: 1, english: 'Solo', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    const p = popup();
+    expect(p!.querySelectorAll('.hp-section')).toHaveLength(1);
+    expect(p!.textContent).toContain('和訳のみ');
+    expect(p!.querySelector('.hp-word-head')).toBeNull();
+  });
+
+  it('どちらのコールバックも未指定ならホバーしてもポップアップは出ない', async () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'Nothing', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(popup()).toBeNull();
   });
 });
 
@@ -427,7 +552,7 @@ describe('createTranscriptPanel — clear() で履歴を全消去', () => {
       onExplain: async () => ({ ok: true, translation: 'x', explanation: 'y' }),
     });
     panel.append({ id: 1, english: 'Hello', videoTime: 1 });
-    rowsOf()[0].dispatchEvent(new Event('mouseenter'));
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500);
     expect(popup()).not.toBeNull();
 
