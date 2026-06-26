@@ -1,3 +1,6 @@
+import { tokenizeLine } from '../shared/tokenize';
+import type { WordSense } from '../shared/explanation';
+
 export interface TranscriptEntry {
   /** 行を一意に識別する連番（翻訳の後追い更新に使う）。 */
   id: number;
@@ -12,10 +15,17 @@ export type TranscriptMeaning =
   | { ok: true; translation: string; explanation: string }
   | { ok: false; error: string };
 
+/** ホバーで取得する単語の意味（成功＝品詞別訳＋解説／失敗＝メッセージ）。 */
+export type TranscriptWordMeaning =
+  | { ok: true; senses: WordSense[]; explanation: string }
+  | { ok: false; error: string };
+
 export interface TranscriptPanelCallbacks {
   /** 行クリックでその場面へシークする。 */
   onSeek: (videoTime: number) => void;
-  /** 行に一定時間ホバーしたとき、その英文の意味（和訳＋解説）を取得する。 */
+  /** 単語にホバーしたとき、その単語の意味（品詞別訳＋解説）を取得する。ポップアップ上段に出す。 */
+  onExplainWord?: (word: string, sentence: string) => Promise<TranscriptWordMeaning>;
+  /** 単語にホバーしたとき、その単語を含む字幕一文の意味（和訳＋解説）を取得する。ポップアップ下段に出す。 */
   onExplain?: (sentence: string) => Promise<TranscriptMeaning>;
   /** ヘッダーの消去ボタンクリックで履歴を全消去する（未指定ならボタンを出さない）。 */
   onClearHistory?: () => void;
@@ -76,6 +86,8 @@ const STYLES = `
 }
 .row .en { font-size: 13px; line-height: 1.4; }
 .row .ja { font-size: 12px; line-height: 1.4; color: #ffe08a; margin-top: 2px; }
+.row .en .word { border-radius: 3px; padding: 0 1px; transition: background 0.1s; }
+.row .en .word:hover { background: rgba(255, 255, 255, 0.22); }
 .reopen {
   position: fixed; top: 8px; right: 8px; z-index: 2147483000;
   background: rgba(20,20,20,0.82); color: #fff; border: 1px solid #555;
@@ -84,15 +96,27 @@ const STYLES = `
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 .hover-popup {
-  position: fixed; max-width: 300px; min-width: 180px;
+  position: fixed; max-width: 320px; min-width: 200px;
   background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
   padding: 10px 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   font-size: 13px; line-height: 1.6; pointer-events: auto; z-index: 2147483001;
 }
+.hover-popup .hp-section { display: flex; flex-direction: column; }
+.hover-popup .hp-section + .hp-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid #3a3a3a; }
+.hover-popup .hp-word-head { font-size: 15px; font-weight: 700; color: #8ab4ff; margin-bottom: 4px; }
 .hover-popup .hp-label { font-size: 11px; color: #8ab4ff; font-weight: 700; margin-bottom: 2px; }
-.hover-popup .hp-trans { color: #ffe08a; margin-bottom: 4px; white-space: pre-wrap; }
-.hover-popup .hp-divider { border-top: 1px solid #3a3a3a; margin: 8px 0; }
-.hover-popup .hp-expl { white-space: pre-wrap; }
+.hover-popup .hp-senses {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px;
+  margin: 0 0 4px;
+}
+.hover-popup .hp-pos {
+  color: #b9c4d6; font-size: 12px; white-space: nowrap;
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+.hover-popup .hp-gloss { color: #d8d8d8; font-size: 12px; }
+.hover-popup .hp-trans { color: #ffe08a; white-space: pre-wrap; margin-bottom: 4px; }
+.hover-popup .hp-expl { white-space: pre-wrap; color: #cfcfcf; font-size: 12px; }
+.hover-popup .hp-body { white-space: pre-wrap; }
 .hover-popup .hp-body.loading { opacity: 0.7; }
 .hover-popup .hp-body.err { color: #ff8a8a; }
 `;
@@ -194,13 +218,14 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     });
   });
 
-  // --- ホバーで文の意味を表示するポップアップ ---
-  const DWELL_MS = 500; // 何ms乗せ続けたら出すか
+  // --- ホバーで単語＋文の意味を 2 段で表示するポップアップ ---
+  // 上段＝単語の意味（onExplainWord）、下段＝その単語を含む字幕一文の意味（onExplain）。
+  const DWELL_MS = 500; // 何ms乗せ続けたら出すか（初回のみ。ポップアップ表示中は即時切替）
   const CLOSE_GRACE_MS = 200; // 離れてから閉じるまでの猶予
   let hoverPopup: HTMLDivElement | null = null;
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
-  // 応答の競合ガード。開く/閉じるたびに増やし、古い応答を破棄する。
+  // 応答の競合ガード。開く/閉じる/別単語へ移るたびに増やし、古い応答を破棄する。
   let hoverSeq = 0;
 
   const clearDwell = (): void => {
@@ -229,9 +254,9 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     closeTimer = setTimeout(hideHoverPopup, CLOSE_GRACE_MS);
   };
 
-  const positionHoverPopup = (row: HTMLElement): void => {
+  const positionHoverPopup = (anchor: HTMLElement): void => {
     if (!hoverPopup) return;
-    const r = row.getBoundingClientRect();
+    const r = anchor.getBoundingClientRect();
     const margin = 8;
     const pw = hoverPopup.offsetWidth || 280;
     const ph = hoverPopup.offsetHeight || 0;
@@ -243,14 +268,58 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     hoverPopup.style.top = `${top}px`;
   };
 
-  const renderHoverResult = (res: TranscriptMeaning): void => {
-    if (!hoverPopup) return;
-    hoverPopup.replaceChildren();
+  // 単語セクションの中身（senses + 解説）を描画。loading=null、エラー=string、成功=オブジェクト。
+  const renderWordBody = (host: HTMLDivElement, res: TranscriptWordMeaning | null): void => {
+    if (res === null) {
+      const loading = document.createElement('div');
+      loading.className = 'hp-body loading';
+      loading.textContent = 'Thinking…';
+      host.appendChild(loading);
+      return;
+    }
     if (!res.ok) {
       const err = document.createElement('div');
       err.className = 'hp-body err';
       err.textContent = res.error;
-      hoverPopup.appendChild(err);
+      host.appendChild(err);
+      return;
+    }
+    if (res.senses.length > 0) {
+      const senses = document.createElement('div');
+      senses.className = 'hp-senses';
+      for (const s of res.senses) {
+        const pos = document.createElement('span');
+        pos.className = 'hp-pos';
+        pos.textContent = s.pos ?? '';
+        const gloss = document.createElement('span');
+        gloss.className = 'hp-gloss';
+        gloss.textContent = s.gloss;
+        senses.append(pos, gloss);
+      }
+      host.appendChild(senses);
+    }
+    if (res.explanation) {
+      const expl = document.createElement('div');
+      expl.className = 'hp-expl';
+      expl.textContent = res.explanation;
+      host.appendChild(expl);
+    }
+  };
+
+  // 文セクションの中身（和訳 + 解説）を描画。
+  const renderSentenceBody = (host: HTMLDivElement, res: TranscriptMeaning | null): void => {
+    if (res === null) {
+      const loading = document.createElement('div');
+      loading.className = 'hp-body loading';
+      loading.textContent = 'Thinking…';
+      host.appendChild(loading);
+      return;
+    }
+    if (!res.ok) {
+      const err = document.createElement('div');
+      err.className = 'hp-body err';
+      err.textContent = res.error;
+      host.appendChild(err);
       return;
     }
     if (res.translation) {
@@ -260,26 +329,54 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       const val = document.createElement('div');
       val.className = 'hp-trans';
       val.textContent = res.translation;
-      hoverPopup.append(label, val);
+      host.append(label, val);
     }
     if (res.explanation) {
-      if (res.translation) {
-        const divider = document.createElement('div');
-        divider.className = 'hp-divider';
-        hoverPopup.appendChild(divider);
-      }
-      const label = document.createElement('div');
-      label.className = 'hp-label';
-      label.textContent = '解説';
-      const val = document.createElement('div');
-      val.className = 'hp-expl';
-      val.textContent = res.explanation;
-      hoverPopup.append(label, val);
+      const expl = document.createElement('div');
+      expl.className = 'hp-expl';
+      expl.textContent = res.explanation;
+      host.appendChild(expl);
     }
   };
 
-  const openHoverPopup = (row: HTMLElement, sentence: string): void => {
-    if (!cb.onExplain) return;
+  /**
+   * ホバー中の (word, sentence) ペアに対する 2 段ポップアップを描画する。
+   * - 上段＝単語、下段＝文。どちらも null=ローディング、Object=結果。
+   * - onExplainWord/onExplain が無いセクションは丸ごと省略する。
+   */
+  const renderHoverPopup = (
+    word: string,
+    wordRes: TranscriptWordMeaning | null,
+    sentRes: TranscriptMeaning | null,
+  ): void => {
+    if (!hoverPopup) return;
+    hoverPopup.replaceChildren();
+
+    if (cb.onExplainWord) {
+      const sec = document.createElement('div');
+      sec.className = 'hp-section';
+      const head = document.createElement('div');
+      head.className = 'hp-word-head';
+      head.textContent = word;
+      sec.appendChild(head);
+      renderWordBody(sec, wordRes);
+      hoverPopup.appendChild(sec);
+    }
+    if (cb.onExplain) {
+      const sec = document.createElement('div');
+      sec.className = 'hp-section';
+      renderSentenceBody(sec, sentRes);
+      hoverPopup.appendChild(sec);
+    }
+  };
+
+  /**
+   * ホバーポップアップを開く（または現在のポップアップを別単語に差し替える）。
+   * 単語の意味と文の意味を並行取得し、それぞれの応答が来た順に該当セクションを更新する。
+   * 行を跨いで単語移動した場合は hoverSeq で旧応答を破棄する。
+   */
+  const openHoverPopup = (row: HTMLElement, word: string, sentence: string): void => {
+    if (!cb.onExplainWord && !cb.onExplain) return;
     clearClose();
     const seq = ++hoverSeq;
     if (!hoverPopup) {
@@ -289,17 +386,28 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       hoverPopup.addEventListener('mouseleave', scheduleClose);
       shadow.appendChild(hoverPopup);
     }
-    hoverPopup.replaceChildren();
-    const body = document.createElement('div');
-    body.className = 'hp-body loading';
-    body.textContent = 'Thinking…';
-    hoverPopup.appendChild(body);
+
+    let wordRes: TranscriptWordMeaning | null = null;
+    let sentRes: TranscriptMeaning | null = null;
+    renderHoverPopup(word, wordRes, sentRes);
     positionHoverPopup(row);
-    void cb.onExplain(sentence).then((res) => {
-      if (seq !== hoverSeq || !hoverPopup) return; // 別の行へ移った/閉じた
-      renderHoverResult(res);
-      positionHoverPopup(row);
-    });
+
+    if (cb.onExplainWord) {
+      void cb.onExplainWord(word, sentence).then((res) => {
+        if (seq !== hoverSeq || !hoverPopup) return; // 別単語へ移った／閉じた
+        wordRes = res;
+        renderHoverPopup(word, wordRes, sentRes);
+        positionHoverPopup(row);
+      });
+    }
+    if (cb.onExplain) {
+      void cb.onExplain(sentence).then((res) => {
+        if (seq !== hoverSeq || !hoverPopup) return;
+        sentRes = res;
+        renderHoverPopup(word, wordRes, sentRes);
+        positionHoverPopup(row);
+      });
+    }
   };
 
   const onHoverKeyDown = (e: KeyboardEvent): void => {
@@ -310,18 +418,41 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const row = document.createElement('div');
     row.className = 'row';
     row.addEventListener('click', () => cb.onSeek(entry.videoTime));
-    row.addEventListener('mouseenter', () => {
-      clearClose();
-      clearDwell();
-      dwellTimer = setTimeout(() => openHoverPopup(row, entry.english), DWELL_MS);
-    });
+    // 行から完全に出たらドウェルをキャンセルしてポップアップを閉じる。隣の行の単語に
+    // 移ったときは、その単語の mouseenter が先に clearClose して即時で差し替わる。
     row.addEventListener('mouseleave', () => {
       clearDwell();
       scheduleClose();
     });
     const en = document.createElement('div');
     en.className = 'en';
-    en.textContent = entry.english;
+
+    // 単語ごとに span を起こし、その単語のホバーで意味取得を発火する（Language Reactor 風）。
+    // 単語間移動はポップアップ表示中なら即時で切り替わる（初回のみドウェル待ち）。
+    for (const tok of tokenizeLine(entry.english)) {
+      if (!tok.isWord) {
+        en.appendChild(document.createTextNode(tok.text));
+        continue;
+      }
+      const wspan = document.createElement('span');
+      wspan.className = 'word';
+      wspan.textContent = tok.text;
+      wspan.addEventListener('mouseenter', () => {
+        clearClose();
+        clearDwell();
+        if (hoverPopup) {
+          // すでに表示中（または猶予中）なら、ドウェルなしで即時切替。
+          openHoverPopup(row, tok.text, entry.english);
+        } else {
+          dwellTimer = setTimeout(
+            () => openHoverPopup(row, tok.text, entry.english),
+            DWELL_MS,
+          );
+        }
+      });
+      en.appendChild(wspan);
+    }
+
     const ja = document.createElement('div');
     ja.className = 'ja';
     row.append(en, ja);
