@@ -1,4 +1,5 @@
 import type {
+  AiProvider,
   ExplainSelectionRequest,
   ExplainSentenceRequest,
   ExplanationLanguage,
@@ -24,14 +25,15 @@ export function makeCacheKey(
   req: TranslateLineRequest | ExplainSelectionRequest | ExplainSentenceRequest,
   model: string,
   language: ExplanationLanguage,
+  provider: AiProvider = 'anthropic',
 ): string {
   if (req.type === 'translateLine') {
-    return ['t', model, req.text].join(SEP);
+    return ['t', provider, model, language, req.text].join(SEP);
   }
   if (req.type === 'explainSentence') {
-    return ['s', model, language, req.text].join(SEP);
+    return ['s', provider, model, language, req.text].join(SEP);
   }
-  return ['e', EXPLANATION_PROMPT_VERSION, model, language, req.selection, req.context].join(SEP);
+  return ['e', EXPLANATION_PROMPT_VERSION, provider, model, language, req.selection, req.context].join(SEP);
 }
 
 /** Service Worker の生存中だけ有効な高速メモリ層。 */

@@ -74,3 +74,8 @@ describe('Haiku 5.5 settings migration', () => {
     },
   );
 });
+
+it('preserves an explicit subscription choice and saved API key and switches', async () => {
+  await saveSettings({ provider: 'claude-subscription', apiKey: 'stored-key', dualSubtitle: false });
+  expect(await getSettings()).toMatchObject({ provider: 'claude-subscription', apiKey: 'stored-key', dualSubtitle: false });
+});

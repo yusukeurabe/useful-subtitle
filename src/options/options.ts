@@ -1,6 +1,6 @@
 import { getSettings, saveSettings } from '../shared/settings';
 import { sendRequest } from '../shared/messages';
-import type { ExplanationLanguage } from '../shared/types';
+import type { AiProvider, ExplanationLanguage } from '../shared/types';
 
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -8,7 +8,10 @@ function el<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
-async function init(): Promise<void> {
+export async function init(): Promise<void> {
+  const provider = el<HTMLSelectElement>('provider');
+  const apiArea = el<HTMLElement>('apiArea');
+  const subscriptionArea = el<HTMLElement>('subscriptionArea');
   const apiKey = el<HTMLInputElement>('apiKey');
   const model = el<HTMLInputElement>('model');
   const lang = el<HTMLSelectElement>('lang');
@@ -21,6 +24,14 @@ async function init(): Promise<void> {
   const status = el<HTMLSpanElement>('status');
 
   const s = await getSettings();
+  provider.value = s.provider;
+  const showProvider = (): void => {
+    apiArea.hidden = provider.value === 'claude-subscription';
+    subscriptionArea.hidden = provider.value !== 'claude-subscription';
+  };
+  showProvider();
+  el<HTMLElement>('extensionId').textContent = chrome.runtime.id;
+  el<HTMLInputElement>('setupCommand').value = `npm run setup:native -- --browser brave --extension-id ${chrome.runtime.id}`;
   apiKey.value = s.apiKey;
   model.value = s.model;
   lang.value = s.explanationLanguage;
@@ -37,6 +48,7 @@ async function init(): Promise<void> {
 
   const persist = (): Promise<void> =>
     saveSettings({
+      provider: provider.value as AiProvider,
       apiKey: apiKey.value.trim(),
       model: model.value.trim() || s.model,
       explanationLanguage: lang.value as ExplanationLanguage,
@@ -48,10 +60,11 @@ async function init(): Promise<void> {
     });
 
   for (const field of [
-    apiKey, model, lang, dualSubtitle, autoPause, enabled,
+    provider, apiKey, model, lang, dualSubtitle, autoPause, enabled,
     truecaseSubtitle, showTranscriptPanel,
   ]) {
     field.addEventListener('change', () => {
+      showProvider();
       void persist().then(() => setStatus('保存しました', 'ok'));
     });
   }
@@ -59,7 +72,7 @@ async function init(): Promise<void> {
   testBtn.addEventListener('click', () => {
     void (async () => {
       await persist();
-      if (!apiKey.value.trim()) {
+      if (provider.value === 'anthropic' && !apiKey.value.trim()) {
         setStatus('APIキーを入力してください', 'err');
         return;
       }

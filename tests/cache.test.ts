@@ -76,3 +76,9 @@ describe('cache store', () => {
     expect(await getCached('round-trip-key')).toBe('value-1');
   });
 });
+
+it('separates every request by provider and language', () => {
+  const req = { type: 'translateLine', text: 'Hi' } as const;
+  expect(makeCacheKey(req, model, 'ja', 'anthropic')).not.toBe(makeCacheKey(req, model, 'ja', 'claude-subscription'));
+  expect(makeCacheKey(req, model, 'ja', 'claude-subscription')).not.toBe(makeCacheKey(req, model, 'en', 'claude-subscription'));
+});

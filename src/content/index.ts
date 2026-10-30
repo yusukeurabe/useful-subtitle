@@ -18,6 +18,11 @@ async function main(): Promise<void> {
   if (!settings.enabled) return;
   const youtube = isYouTube();
   let generation = 0;
+  const notifyContextChanged = (): void => {
+    try {
+      void chrome.runtime.sendMessage({ type: 'contextChanged' }).catch(() => {});
+    } catch { /* 拡張の再読み込み後は次の通常要求で再読み込みを案内する。 */ }
+  };
   let historyGeneration = 0;
   let lineVersion = 0;
   let translationTimer: ReturnType<typeof setTimeout> | undefined;
@@ -89,6 +94,7 @@ async function main(): Promise<void> {
     });
     if (switched) {
       generation++;
+      notifyContextChanged();
       clearHistory();
       cancelTranslation();
       overlay.clearLine();
@@ -132,7 +138,10 @@ async function main(): Promise<void> {
     overlay.syncMount();
     panel?.setVisible(context.active && !context.isAd);
     // ページ離脱・広告開始でも進行中の翻訳を無効化する。履歴は動画 ID 変更時だけ消す。
-    if (youtube && ((wasActive && !context.active) || (!wasAd && context.isAd))) generation++;
+    if (youtube && ((wasActive && !context.active) || (!wasAd && context.isAd))) {
+      generation++;
+      notifyContextChanged();
+    }
     if (context.contentId !== previousId) beforeAdText = '';
     else if (context.isAd && !wasAd) beforeAdText = currentText;
     wasAd = context.isAd;
@@ -186,7 +195,11 @@ async function main(): Promise<void> {
           panel?.setTranslation(recordedId, res.text);
         }
         if (version !== lineVersion) return;
-        overlay.setTranslation(res.ok ? { kind: 'text', text: res.text } : { kind: 'none' });
+        overlay.setTranslation(res.ok
+          ? { kind: 'text', text: res.text }
+          : res.code === 'RATE_LIMIT'
+            ? { kind: 'text', text: res.error }
+            : { kind: 'none' });
       });
     };
     if (youtube) {

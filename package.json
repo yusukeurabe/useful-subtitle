@@ -10,7 +10,9 @@
     "dev": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "setup:native": "node scripts/setup-native.mjs",
+    "test:native": "node --test --test-concurrency=1 native/tests/*.test.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.43",
