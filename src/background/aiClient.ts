@@ -29,6 +29,8 @@ export function buildAnthropicRequest(params: AnthropicParams): {
 } {
   const body = {
     model: params.model,
+    // 字幕の短い翻訳・解説では応答速度を優先。対応するモデルだけ思考を無効にする。
+    ...(params.model === 'claude-haiku-5-5' ? { thinking: { type: 'disabled' } } : {}),
     max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
     system: params.system,
     messages: [{ role: 'user', content: params.user }],
@@ -50,6 +52,7 @@ export function buildAnthropicRequest(params: AnthropicParams): {
 }
 
 interface AnthropicResponseShape {
+  stop_reason?: string;
   content?: Array<{ type: string; text?: string }>;
 }
 
@@ -94,7 +97,10 @@ export async function callAnthropic(
     );
   }
 
-  const json = await res.json().catch(() => null);
+  const json: AnthropicResponseShape | null = await res.json().catch(() => null);
+  if (json?.stop_reason === 'refusal') {
+    throw new AiError('UNKNOWN', 'AI がこのリクエストへの回答を拒否しました。');
+  }
   const text = parseAnthropicResponse(json);
   if (!text) {
     throw new AiError('UNKNOWN', 'AI から空の応答が返りました。');

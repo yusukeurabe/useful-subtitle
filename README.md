@@ -14,7 +14,7 @@ Amazon Prime Video・YouTube の字幕の **単語・フレーズ・イディオ
 ## 仕組み
 
 - Prime Video（`.atvwebplayersdk-captions-text`）または YouTube の標準プレイヤー（`#movie_player` 内の `.ytp-caption-segment`）が描画する字幕テキストを `MutationObserver` で読み取り、クリック可能なカスタム字幕に置き換え
-- 解説・翻訳は Anthropic Messages API（既定: Claude Haiku）を拡張機能の Service Worker から直接呼び出し
+- 解説・翻訳は Anthropic Messages API（既定: Claude Haiku 5.5 / `claude-haiku-5-5`）を拡張機能の Service Worker から直接呼び出し
 - **API キーはご自身のもの** を設定画面に保存（`chrome.storage.local`、ブラウザ内のみ）
 
 ## セットアップ
@@ -28,6 +28,8 @@ npm run build      # esbuild → dist/
 2. 「パッケージ化されていない拡張機能を読み込む」→ `dist/` を選択
 3. ツールバーのアイコンから設定を開き、Anthropic API キー（<https://console.anthropic.com> で取得）を入力 →「接続テスト」
 
+既存利用者は更新後に拡張機能を再読み込みしてください。保存済みの旧既定モデル（`claude-haiku-4-5-20251001` / `claude-haiku-4-5`）は次回の設定読み込み時に Haiku 5.5 へ自動移行します。API キー・その他の設定・カスタムモデルは維持します。
+
 ## 使い方
 
 1. Prime Video または YouTube の通常の動画ページ（`/watch?v=...`）で再生し、**英語字幕を ON**
@@ -36,9 +38,9 @@ npm run build      # esbuild → dist/
 
 ## 費用の目安
 
-- デュアル字幕 ON（毎行翻訳）: おおよそ 1 作品 ¥50〜100 程度
-- クリックした語句のみ（デュアル字幕 OFF）: ほぼ無料〜数円
-- 同一字幕はキャッシュされ再課金されません
+- 費用は選択したモデル、送受信するトークン数、翻訳・解説の回数に応じて変わります。
+- デュアル字幕を OFF にすると、自動翻訳の API 呼び出しを減らせます。
+- キャッシュに残っている同一リクエストは API を呼び出しません（モデルを変更すると別のキャッシュになります）。
 
 ## 開発
 
