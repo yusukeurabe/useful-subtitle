@@ -1,3 +1,4 @@
+import { isYouTube, isYouTubeAd } from './site';
 import { getSettings, saveSettings } from '../shared/settings';
 import { tokenizeLine } from '../shared/tokenize';
 import { toTrueCase } from '../shared/truecase';
@@ -15,6 +16,16 @@ import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
 async function main(): Promise<void> {
   const settings = await getSettings();
   if (!settings.enabled) return;
+  const youtube = isYouTube();
+  let generation = 0;
+  let historyGeneration = 0;
+  let lineVersion = 0;
+  let translationTimer: ReturnType<typeof setTimeout> | undefined;
+  let translationQueuedAt = 0;
+  const cancelTranslation = (): void => {
+    clearTimeout(translationTimer);
+    translationTimer = undefined;
+  };
 
   let overlay!: Overlay;
   overlay = createOverlay(
@@ -39,6 +50,7 @@ async function main(): Promise<void> {
   // 押下後に再生された字幕からまた記録が始まる。panel 自身を参照するので let で先に宣言する。
   let panel: TranscriptPanel | null = null;
   const clearHistory = (): void => {
+    historyGeneration++;
     panel?.clear();
     recorder.reset();
   };
@@ -64,25 +76,26 @@ async function main(): Promise<void> {
         onClearHistory: clearHistory,
       })
     : null;
+  panel?.setVisible(!youtube);
   let entryId = 0;
-  // 別作品・別エピソードへの切り替えを見分ける検出器（URL の作品コード＋本編の尺）。
-  // 広告では発火しない（id も本編の尺も変わらない）ので、広告で履歴を誤って消さない。
-  const titleSwitch = createTitleSwitchDetector();
+  // Prime は作品コード＋本編の尺、YouTube は動画 ID のみで切り替えを判定する。
+  const titleSwitch = createTitleSwitchDetector({ useDuration: !youtube });
 
   // 作品が本当に切り替わったときだけ履歴を全消去し、記録位置も初期化する。
   const maybeResetForNewTitle = (): void => {
-    if (!panel) return;
     const switched = titleSwitch.check({
       id: extractContentId(location.href),
       durationRaw: findVideo()?.duration ?? NaN,
     });
     if (switched) {
-      panel.clear();
-      recorder.reset();
+      generation++;
+      clearHistory();
+      cancelTranslation();
+      overlay.clearLine();
     }
   };
 
-  if (panel) {
+  if (panel && !youtube) {
     // 動画の読み込み（エピソード切替など）を検知。フロンティアは従来どおり常に初期化し
     // （新しい動画を時刻 0 付近から記録できるように）、加えて作品が本当に変わったかを
     // 判定して履歴を全消去する。メディアイベントはバブリングしないため document の
@@ -99,25 +112,45 @@ async function main(): Promise<void> {
   if (panel) {
     // 再生位置の変化を監視して履歴のアクティブ行を更新する。メディアイベントは
     // バブリングしないため document のキャプチャ段で受ける（広告での video 差し替えにも耐える）。
-    const syncActiveRow = (): void => panel.updateActiveByTime(findVideo()?.currentTime ?? 0);
+    const syncActiveRow = (): void => {
+      const video = findVideo();
+      if (video) panel.updateActiveByTime(video.currentTime);
+    };
     for (const ev of ['timeupdate', 'seeked'] as const) {
       document.addEventListener(ev, syncActiveRow, true);
     }
   }
 
-  // 直近の字幕。非同期の翻訳結果が古い行を上書きしないよう照合に使う。
+  // 広告復帰直後に同じ字幕を履歴へ二重記録しないため、直近の字幕を保持する。
   let currentText = '';
+  let beforeAdText = '';
+  let wasAd = false;
+  let previousId = '';
+  let wasActive = true;
 
-  startCaptionObserver((raw) => {
+  startCaptionObserver((raw, context) => {
+    overlay.syncMount();
+    panel?.setVisible(context.active && !context.isAd);
+    // ページ離脱・広告開始でも進行中の翻訳を無効化する。履歴は動画 ID 変更時だけ消す。
+    if (youtube && ((wasActive && !context.active) || (!wasAd && context.isAd))) generation++;
+    if (context.contentId !== previousId) beforeAdText = '';
+    else if (context.isAd && !wasAd) beforeAdText = currentText;
+    wasAd = context.isAd;
+    wasActive = context.active;
+    previousId = context.contentId;
+    const version = ++lineVersion;
     // 記録の前に作品切替を判定する。切り替わっていれば履歴を空にしてから進むので、
     // 新作品の最初の字幕が履歴の先頭行になる。
     maybeResetForNewTitle();
     if (raw === null) {
+      cancelTranslation();
       currentText = '';
       overlay.clearLine();
       return;
     }
     const text = settings.truecaseSubtitle ? toTrueCase(raw) : raw;
+    const resumedText = beforeAdText;
+    beforeAdText = '';
     currentText = text;
     // 字幕が現れた瞬間の動画位置を一度だけ読み、overlay の▶（字幕の頭から再生）と
     // 履歴記録の両方で同じ値を使う（クリック先がブレないように）。
@@ -126,7 +159,7 @@ async function main(): Promise<void> {
 
     // 巻き戻して記録済み範囲を再生し直している間は履歴へ重複記録しない。
     // 画面上の字幕・翻訳（overlay）は再視聴中も従来どおり表示する。
-    const recordedId = panel && recorder.shouldRecord(videoTime) ? ++entryId : null;
+    const recordedId = panel && text !== resumedText && recorder.shouldRecord(videoTime) ? ++entryId : null;
     if (recordedId !== null) {
       panel?.append({ id: recordedId, english: text, videoTime });
       // 追加した行を即座にアクティブにする（timeupdate を待たずに反映）。
@@ -138,11 +171,32 @@ async function main(): Promise<void> {
       return;
     }
     overlay.setTranslation({ kind: 'loading' });
-    void sendRequest({ type: 'translateLine', text }).then((res) => {
-      if (res.ok && recordedId !== null) panel?.setTranslation(recordedId, res.text);
-      if (text !== currentText) return; // 既に次の行へ移っていれば字幕表示は破棄
-      overlay.setTranslation(res.ok ? { kind: 'text', text: res.text } : { kind: 'none' });
-    });
+    const requestGeneration = generation;
+    const requestHistoryGeneration = historyGeneration;
+    const contentId = context.contentId;
+    const validSession = (): boolean => requestGeneration === generation && (
+      !youtube || (!isYouTubeAd() && contentId === extractContentId(location.href))
+    );
+    const translate = (): void => {
+      translationTimer = undefined;
+      if (!validSession() || version !== lineVersion) return;
+      void sendRequest({ type: 'translateLine', text }).then((res) => {
+        if (!validSession()) return;
+        if (res.ok && recordedId !== null && requestHistoryGeneration === historyGeneration) {
+          panel?.setTranslation(recordedId, res.text);
+        }
+        if (version !== lineVersion) return;
+        overlay.setTranslation(res.ok ? { kind: 'text', text: res.text } : { kind: 'none' });
+      });
+    };
+    if (youtube) {
+      // ローリング字幕は即時表示し、翻訳だけ350msまとめる。連続更新でも1.5秒で送る。
+      if (translationTimer === undefined) translationQueuedAt = Date.now();
+      clearTimeout(translationTimer);
+      translationTimer = setTimeout(translate, Math.max(0, Math.min(350, 1500 - (Date.now() - translationQueuedAt))));
+    } else {
+      translate();
+    }
   });
 
   console.info('[Useful Subtitle] active on', location.hostname);

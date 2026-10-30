@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Useful Subtitle — Prime Video 英語学習",
+  "name": "Useful Subtitle — Prime Video・YouTube 英語学習",
   "version": "0.1.0",
   "icons": {
     "16": "icons/icon-16.png",
@@ -8,7 +8,7 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "description": "Prime Video の字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説します。",
+  "description": "Prime Video・YouTube の字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説します。",
   "permissions": ["storage", "offscreen"],
   "host_permissions": [
     "https://api.anthropic.com/*",
@@ -23,7 +23,9 @@
       "matches": [
         "https://www.primevideo.com/*",
         "https://www.amazon.co.jp/gp/video/*",
-        "https://www.amazon.com/gp/video/*"
+        "https://www.amazon.com/gp/video/*",
+        "https://www.youtube.com/*",
+        "https://youtube.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"

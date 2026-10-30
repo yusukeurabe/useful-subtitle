@@ -1,3 +1,5 @@
+import { isYouTube, youtubeVideoId } from './site';
+
 /**
  * Prime Video の「いま見ている作品」を見分ける純粋ロジック。
  *
@@ -13,6 +15,10 @@
  * クエリ・ref・ハッシュ等の揺れは含めない（同一作品内の URL 微変化で誤判定しない）。
  */
 export function extractContentId(href: string): string {
+  if (isYouTube(href)) {
+    const id = youtubeVideoId(href);
+    return id ? `youtube:${id}` : '';
+  }
   // 1) GTI（エピソード単位で最も精密）: amzn1.dv.gti.<token>
   const gti = href.match(/amzn1\.dv\.gti\.[A-Za-z0-9-]+/);
   if (gti) return gti[0];
@@ -35,6 +41,8 @@ export interface TitleSwitchDetector {
 }
 
 export interface TitleSwitchOptions {
+  /** YouTube は動画 ID だけで判定し、広告・ライブによる尺の変化を無視する。 */
+  useDuration?: boolean;
   /** 本編とみなす最低尺（秒）。これ未満の duration は尺シグナルとして無視。既定 300。 */
   minTitleSeconds?: number;
   /** 尺が「変わった」とみなす差の閾値（秒）。微小ゆらぎを吸収。既定 1。 */
@@ -55,7 +63,7 @@ export function createTitleSwitchDetector(opts: TitleSwitchOptions = {}): TitleS
   return {
     check({ id, durationRaw }: TitleSwitchInput): boolean {
       // 本編とみなせる尺だけを尺シグナルとして採用（広告・短尺・未ロードは除外）。
-      const qualifies = Number.isFinite(durationRaw) && durationRaw >= minTitleSeconds;
+      const qualifies = opts.useDuration !== false && Number.isFinite(durationRaw) && durationRaw >= minTitleSeconds;
       const effDur = qualifies ? durationRaw : null;
 
       const hasBaseline = lastId !== null || lastDuration !== null;

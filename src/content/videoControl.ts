@@ -1,4 +1,5 @@
-import { VIDEO_SELECTOR, PLAYPAUSE_BUTTON_SELECTORS } from '../shared/selectors';
+import { isYouTube, isYouTubeAd, youtubePlayer } from './site';
+import { VIDEO_SELECTOR, PLAYPAUSE_BUTTON_SELECTORS, YOUTUBE_VIDEO_SELECTOR } from '../shared/selectors';
 
 /**
  * 本編 video を選ぶのに使う最小限のプロパティ。
@@ -51,6 +52,10 @@ export function pickBestVideo<T extends VideoLike>(videos: readonly T[]): T | nu
 
 /** 再生中の本編 video を返す（複数あっても本編を選ぶ。無ければ null）。 */
 export function findVideo(): HTMLVideoElement | null {
+  if (isYouTube()) {
+    if (!youtubePlayer() || isYouTubeAd()) return null;
+    return document.querySelector<HTMLVideoElement>(YOUTUBE_VIDEO_SELECTOR);
+  }
   const videos = document.querySelectorAll<HTMLVideoElement>(VIDEO_SELECTOR);
   return pickBestVideo(Array.from(videos));
 }
@@ -96,11 +101,13 @@ export function seekVideo(seconds: number): void {
   const v = findVideo();
   if (!v) return;
   v.currentTime = Math.max(0, seconds);
-  const resume = (): void => void v.play().catch(() => undefined);
+  const resume = (): void => {
+    if (findVideo() === v) void v.play().catch(() => undefined);
+  };
   resume();
   v.addEventListener('seeked', resume, { once: true });
   setTimeout(() => {
     if (!v.paused) return; // 既に再生できている（再生中クリックを含む）→ 何もしない
-    findPlayPauseButton()?.click();
+    if (!isYouTube() && v.isConnected && findVideo() === v) findPlayPauseButton()?.click();
   }, 200);
 }

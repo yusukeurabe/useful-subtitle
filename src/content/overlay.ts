@@ -1,6 +1,7 @@
+import { isYouTube, youtubePlayer } from './site';
 import type { Token } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
-import { CAPTION_TEXT_SELECTORS } from '../shared/selectors';
+import { CAPTION_TEXT_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
 import { cambridgeUrl, formatIpaForDisplay } from '../shared/dictionary';
 
 export interface OverlayCallbacks {
@@ -28,11 +29,13 @@ export interface Overlay {
   renderLine(sentence: string, tokens: Token[], videoTime: number): void;
   clearLine(): void;
   setTranslation(state: TranslationState): void;
-  openPopup(anchor: DOMRect, selection: string): void;
+  openPopup(anchor: DOMRect, selection: string): number;
+  isPopupCurrent(token: number): boolean;
   setPopupMeaning(explanation: string, senses: WordSense[]): void;
   setPopupError(message: string): void;
   setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
   hidePopup(): void;
+  syncMount(): void;
   destroy(): void;
 }
 
@@ -132,6 +135,7 @@ interface WordRef {
 }
 
 export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptions): Overlay {
+  const youtube = isYouTube();
   const host = document.createElement('div');
   host.id = 'useful-subtitle-overlay';
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000;';
@@ -143,6 +147,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   const subtitle = document.createElement('div');
   subtitle.className = 'subtitle';
+  subtitle.hidden = true;
+  if (youtube) {
+    host.style.position = 'absolute';
+    subtitle.style.position = 'absolute';
+    subtitle.style.maxWidth = '80%';
+  }
   const original = document.createElement('div');
   original.className = 'original';
   const translation = document.createElement('div');
@@ -181,9 +191,10 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   // ネイティブ字幕を隠す（テキストは DOM に残るので読み取りは可能）。
   const hideStyle = document.createElement('style');
-  hideStyle.textContent = `${CAPTION_TEXT_SELECTORS.join(', ')} { visibility: hidden !important; }`;
+  hideStyle.textContent = `${(youtube ? YOUTUBE_CAPTION_SELECTORS : CAPTION_TEXT_SELECTORS).join(', ')} { visibility: hidden !important; }`;
 
   let popup: HTMLDivElement | null = null;
+  let popupGeneration = 0;
   let popupBody: HTMLDivElement | null = null;
   let popupIpa: HTMLSpanElement | null = null;
   let popupSenses: HTMLDivElement | null = null;
@@ -249,6 +260,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   };
 
   function renderLine(sentence: string, tokens: Token[], videoTime: number): void {
+    subtitle.hidden = false;
     currentSentence = sentence;
     currentLineVideoTime = videoTime;
     hidePopup();
@@ -285,6 +297,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   }
 
   function clearLine(): void {
+    subtitle.hidden = true;
     original.replaceChildren();
     wordRefs = [];
     currentLineVideoTime = 0;
@@ -309,6 +322,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (popup) return popup;
     popup = document.createElement('div');
     popup.className = 'popup';
+    if (youtube) popup.style.position = 'absolute';
     shadow.appendChild(popup);
     return popup;
   };
@@ -316,18 +330,26 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   const positionPopup = (anchor: DOMRect): void => {
     if (!popup) return;
     const margin = 8;
+    const bounds = youtube ? host.getBoundingClientRect() : new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+    if (youtube) {
+      popup.style.boxSizing = 'border-box';
+      popup.style.maxHeight = `${Math.max(0, bounds.height - margin * 2)}px`;
+      popup.style.overflowY = 'auto';
+    }
     const pw = popup.offsetWidth;
     const ph = popup.offsetHeight;
-    let left = anchor.left + anchor.width / 2 - pw / 2;
-    left = Math.max(margin, Math.min(left, window.innerWidth - pw - margin));
-    let top = anchor.top - ph - margin;
-    if (top < margin) top = anchor.bottom + margin;
+    let left = anchor.left - bounds.left + anchor.width / 2 - pw / 2;
+    left = Math.max(margin, Math.min(left, bounds.width - pw - margin));
+    let top = anchor.top - bounds.top - ph - margin;
+    if (top < margin) top = anchor.bottom - bounds.top + margin;
+    top = Math.max(margin, Math.min(top, bounds.height - ph - margin));
     popup.style.left = `${left}px`;
     popup.style.top = `${top}px`;
   };
 
   // ヘッダ（×・選択語・IPA・操作列）は安定して残り、本文だけ「考え中…」→結果/エラーへ更新する。
-  function openPopup(anchor: DOMRect, selection: string): void {
+  function openPopup(anchor: DOMRect, selection: string): number {
+    popupGeneration++;
     const p = ensurePopup();
     p.replaceChildren();
     popupAnchor = anchor;
@@ -392,6 +414,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     p.appendChild(popupBody);
 
     positionPopup(anchor);
+    return popupGeneration;
   }
 
   function setPopupMeaning(explanation: string, senses: WordSense[]): void {
@@ -442,6 +465,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   }
 
   function hidePopup(): void {
+    popupGeneration++;
     if (popup) {
       popup.remove();
       popup = null;
@@ -456,8 +480,18 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   // --- マウント & 全画面追従 ---
   const attach = (): void => {
-    const target = document.fullscreenElement ?? document.body;
-    if (host.parentElement !== target) target.appendChild(host);
+    const target = youtube ? youtubePlayer() : document.fullscreenElement ?? document.body;
+    if (!target) {
+      hidePopup();
+      host.remove();
+      hideStyle.remove();
+      return;
+    }
+    if (host.parentElement !== target) {
+      target.appendChild(host);
+      hidePopup();
+    }
+    if (!hideStyle.isConnected) document.head.appendChild(hideStyle);
   };
   const onFullscreenChange = (): void => attach();
 
@@ -470,6 +504,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   attach();
 
   function destroy(): void {
+    hidePopup();
     document.removeEventListener('mouseup', onMouseUp, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
@@ -484,10 +519,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     clearLine,
     setTranslation,
     openPopup,
+    isPopupCurrent: (token) => popup !== null && token === popupGeneration,
     setPopupMeaning,
     setPopupError,
     setPopupWordInfo,
     hidePopup,
+    syncMount: attach,
     destroy,
   };
 }
