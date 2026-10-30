@@ -18,10 +18,11 @@ export async function runLookup(
 ): Promise<void> {
   if (!selection.trim()) return;
   if (settings.autoPauseOnClick) pauseVideo();
-  overlay.openPopup(anchor, selection);
+  const popupToken = overlay.openPopup(anchor, selection);
   // 発音記号・音源URLの先読み（意味取得と独立・並行）。
-  void loadWordInfo(overlay, selection);
+  void loadWordInfo(overlay, selection, popupToken);
   const res = await sendRequest({ type: 'explainSelection', selection, context: sentence });
+  if (!overlay.isPopupCurrent(popupToken)) return;
   if (res.ok) {
     const { senses, explanation } = parseExplanation(res.text);
     overlay.setPopupMeaning(explanation, senses);

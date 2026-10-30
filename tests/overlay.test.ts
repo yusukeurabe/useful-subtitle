@@ -35,6 +35,18 @@ describe('createOverlay — 字幕の頭から再生する▶ボタン', () => {
     overlay = null;
   });
 
+  it('Prime の画面固定配置と全画面への付け替えを維持する', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const host = document.getElementById(HOST_ID)!;
+    expect(host.parentElement).toBe(document.body);
+    expect(host.style.position).toBe('fixed');
+    const player = document.createElement('div');
+    document.body.append(player);
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: player });
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(host.parentElement).toBe(player);
+  });
+
   it('renderLine で▶ボタンが字幕の中に描画される', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 12.5);

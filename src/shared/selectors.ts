@@ -29,3 +29,10 @@ export const PLAYER_CONTAINER_SELECTORS: readonly string[] = [
   '#dv-web-player',
   '.dv-player-fullscreen',
 ];
+
+/** YouTube の通常 watch プレイヤー内にある標準字幕だけを読む。 */
+export const YOUTUBE_PLAYER_SELECTOR = '#movie_player';
+export const YOUTUBE_CAPTION_SELECTORS: readonly string[] = [
+  '#movie_player .ytp-caption-window-container .ytp-caption-segment',
+];
+export const YOUTUBE_VIDEO_SELECTOR = '#movie_player video.html5-main-video';

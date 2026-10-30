@@ -32,6 +32,7 @@ export interface TranscriptPanelCallbacks {
 }
 
 export interface TranscriptPanel {
+  setVisible(visible: boolean): void;
   append(entry: TranscriptEntry): void;
   setTranslation(id: number, japanese: string): void;
   /** 動画の現在再生位置（秒）から、いま再生中の行を判定して .active を付け替える。 */
@@ -522,5 +523,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
   document.addEventListener('keydown', onHoverKeyDown, true);
   attach();
-  return { append, setTranslation, updateActiveByTime, clear, destroy };
+  const setPageVisible = (visible: boolean): void => {
+    host.style.display = visible ? '' : 'none';
+  };
+  return { append, setTranslation, updateActiveByTime, clear, setVisible: setPageVisible, destroy };
 }

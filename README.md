@@ -1,8 +1,8 @@
-# Useful Subtitle — Prime Video 英語学習字幕
+# Useful Subtitle — Prime Video・YouTube 英語学習字幕
 
-Amazon Prime Video の字幕の **単語・フレーズ・イディオム** をクリックすると、**Claude（Anthropic）が文脈に沿った日本語解説** をその場で表示する Chrome 拡張機能です。
+Amazon Prime Video・YouTube の字幕の **単語・フレーズ・イディオム** をクリックすると、**Claude（Anthropic）が文脈に沿った日本語解説** をその場で表示する Chrome 拡張機能です。
 
-> Language Reactor の Prime Video 版を目指した個人用ツール（非公式。Amazon / Anthropic とは無関係）。
+> 個人用の英語学習ツール（非公式。Amazon / Google / Anthropic とは無関係）。
 
 ## 主な機能
 
@@ -13,7 +13,7 @@ Amazon Prime Video の字幕の **単語・フレーズ・イディオム** を�
 
 ## 仕組み
 
-- Prime Video が描画する字幕テキスト（`.atvwebplayersdk-captions-text`）を `MutationObserver` で読み取り、クリック可能なカスタム字幕に置き換え
+- Prime Video（`.atvwebplayersdk-captions-text`）または YouTube の標準プレイヤー（`#movie_player` 内の `.ytp-caption-segment`）が描画する字幕テキストを `MutationObserver` で読み取り、クリック可能なカスタム字幕に置き換え
 - 解説・翻訳は Anthropic Messages API（既定: Claude Haiku）を拡張機能の Service Worker から直接呼び出し
 - **API キーはご自身のもの** を設定画面に保存（`chrome.storage.local`、ブラウザ内のみ）
 
@@ -30,8 +30,9 @@ npm run build      # esbuild → dist/
 
 ## 使い方
 
-1. Prime Video で作品を再生し、**英語字幕を ON**
-2. 単語クリック／フレーズをドラッグ選択 → 解説ポップアップ（`×` / Esc / 外側クリックで閉じる）
+1. Prime Video または YouTube の通常の動画ページ（`/watch?v=...`）で再生し、**英語字幕を ON**
+2. YouTube では Language Reactor など他の字幕拡張を OFF にする（表示の重複・字幕取得の競合を防ぐ）
+3. 単語クリック／フレーズをドラッグ選択 → 解説ポップアップ（`×` / Esc / 外側クリックで閉じる）
 
 ## 費用の目安
 
@@ -51,7 +52,12 @@ npm run build      # esbuild → dist/
 
 ## 注意・既知の制約
 
-- Amazon のプレイヤー更新で字幕セレクタが変わると動作しなくなる可能性があります（`src/shared/selectors.ts` のフォールバックで吸収を試みます）
+- YouTube はデスクトップ版 `www.youtube.com` / `youtube.com` の通常動画が対象です。ホームからのページ内遷移にも対応します。Shorts・埋め込み・モバイル版は対象外です。
+- 画面に現れた標準字幕だけを読みます。字幕のない動画、未再生部分の先読み、音声認識には対応しません。
+- YouTube の広告中は取得・翻訳送信・履歴記録を止めます。同じ動画の広告や尺の変化では履歴を消さず、別の動画 ID へ移ると履歴をリセットします。
+- YouTube の自動字幕は細かく更新されるため、履歴に途中の断片や重なる文章が残ることがあります。英語表示は即時更新し、翻訳送信は350ミリ秒まとめます（更新が続く場合は最大1.5秒待機）。途中の履歴には訳が付かない場合があります。API 応答時間も加わるため、更新が速い箇所では現在の字幕の訳が間に合わないことがあります。
+
+- Amazon / YouTube のプレイヤー更新で字幕セレクタが変わると動作しなくなる可能性があります（`src/shared/selectors.ts` のフォールバックで吸収を試みます）
 - 字幕がオフだと読み取れません（再生側で英語字幕を ON にしてください）
 - 字幕テキスト・選択語句は解説のため Anthropic API に送信されます
 

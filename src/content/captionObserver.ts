@@ -1,45 +1,86 @@
 import { pickCaptionText } from './captionExtractor';
+import { CAPTION_TEXT_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
+import { extractContentId } from './contentIdentity';
+import { isYouTube, isYouTubeAd, youtubePlayer, youtubeVideoId } from './site';
 
 export interface CaptionObserver {
   stop: () => void;
 }
 
-/**
- * 字幕テキストの変化を監視し、変化があるたびに onChange(text|null) を呼ぶ。
- * Prime は SPA で字幕要素が出入り・再マウントするため、document.body 全体を
- * subtree 監視し、連続ミューテーションは 1 フレームにまとめて読む。
- * 同一テキストの連続発火は抑制する。
- */
+export interface CaptionContext {
+  contentId: string;
+  active: boolean;
+  isAd: boolean;
+  player: HTMLElement | null;
+}
+
+/** 字幕とページ状態をフレーム単位で読み、同じ文字でも動画が変われば通知する。 */
 export function startCaptionObserver(
-  onChange: (text: string | null) => void,
+  onChange: (text: string | null, context: CaptionContext) => void,
 ): CaptionObserver {
+  const youtube = isYouTube();
   let last: string | null = null;
-  let scheduled = false;
+  let previous: CaptionContext | undefined;
+  let frame: number | null = null;
+  let navigating = false;
+  let stopped = false;
 
   const read = (): void => {
-    scheduled = false;
-    const text = pickCaptionText(document);
-    if (text !== last) {
+    frame = null;
+    if (stopped) return;
+    const player = youtube ? youtubePlayer() : null;
+    const context: CaptionContext = {
+      contentId: extractContentId(location.href),
+      active: !youtube || (!navigating && !!youtubeVideoId()),
+      isAd: youtube && isYouTubeAd(player),
+      player,
+    };
+    const text = context.active && !context.isAd
+      ? pickCaptionText(document, youtube ? YOUTUBE_CAPTION_SELECTORS : CAPTION_TEXT_SELECTORS)
+      : null;
+    if (text !== last || !previous || Object.keys(context).some(
+      (key) => context[key as keyof CaptionContext] !== previous![key as keyof CaptionContext],
+    )) {
       last = text;
-      onChange(text);
+      previous = context;
+      onChange(text, context);
     }
   };
 
   const schedule = (): void => {
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(read);
+    if (frame === null && !stopped) frame = requestAnimationFrame(read);
   };
-
-  const observer = new MutationObserver(schedule);
+  const startNavigation = (): void => { navigating = true; schedule(); };
+  const finishNavigation = (): void => { navigating = false; schedule(); };
+  const observer = new MutationObserver((records) => {
+    if (records.some((record) => record.type !== 'attributes' || (
+      record.target instanceof Element && (
+        record.target.id === 'movie_player' ||
+        record.target.closest('#movie_player .ytp-caption-window-container')
+      )
+    ))) schedule();
+  });
   observer.observe(document.body, {
     childList: true,
     subtree: true,
     characterData: true,
+    ...(youtube ? { attributes: true, attributeFilter: ['class'] } : {}),
   });
-
-  // 初回の状態も一度読む。
+  if (youtube) {
+    document.addEventListener('yt-navigate-start', startNavigation);
+    document.addEventListener('yt-navigate-finish', finishNavigation);
+    window.addEventListener('popstate', finishNavigation);
+  }
   schedule();
 
-  return { stop: () => observer.disconnect() };
+  return {
+    stop: () => {
+      stopped = true;
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+      document.removeEventListener('yt-navigate-start', startNavigation);
+      document.removeEventListener('yt-navigate-finish', finishNavigation);
+      window.removeEventListener('popstate', finishNavigation);
+    },
+  };
 }
