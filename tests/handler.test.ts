@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { handleRequest, type HandlerDeps } from '../src/background/handler';
-import { AiError, type AnthropicParams } from '../src/background/aiClient';
+import { AiError, callAnthropic, type AnthropicParams } from '../src/background/aiClient';
 import { DEFAULT_SETTINGS } from '../src/shared/settings';
 
 function deps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
@@ -36,6 +36,20 @@ describe('handleRequest', () => {
     );
     expect(res).toEqual({ ok: true, text: 'AI_RESULT' });
     expect(stored![1]).toBe('AI_RESULT');
+  });
+
+  it('does not cache a refusal returned by the Messages API', async () => {
+    const setCached = vi.fn(async () => {});
+    const fakeFetch = async () => new Response(JSON.stringify({
+      stop_reason: 'refusal',
+      content: [{ type: 'text', text: 'I cannot answer this request.' }],
+    }), { status: 200 });
+    const res = await handleRequest(
+      { type: 'translateLine', text: 'Hello' },
+      deps({ callAi: (params) => callAnthropic(params, fakeFetch as typeof fetch), setCached }),
+    );
+    expect(res).toEqual({ ok: false, code: 'UNKNOWN', error: expect.stringContaining('拒否') });
+    expect(setCached).not.toHaveBeenCalled();
   });
 
   it('returns the cached value without calling the AI', async () => {
