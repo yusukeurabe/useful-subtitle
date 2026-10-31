@@ -33,8 +33,9 @@ export interface TranscriptPanelCallbacks {
 
 export interface TranscriptPanel {
   setVisible(visible: boolean): void;
+  /** 同じ ID は英文を更新し、行の位置と開始時刻を維持する。 */
   append(entry: TranscriptEntry): void;
-  setTranslation(id: number, japanese: string): void;
+  setTranslation(id: number, japanese: string, expectedEnglish?: string): void;
   /** 動画の現在再生位置（秒）から、いま再生中の行を判定して .active を付け替える。 */
   updateActiveByTime(currentTime: number): void;
   /** 履歴を全消去する（別作品・別エピソードへ切り替えたときに呼ぶ）。 */
@@ -179,6 +180,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   reopen.addEventListener('click', () => setVisible(true));
 
   const jaById = new Map<number, HTMLDivElement>();
+  const entriesById = new Map<number, { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement }>();
   // 行と videoTime の対応を追加順に保持する（現在行判定に使う）。
   const rows: { videoTime: number; el: HTMLDivElement }[] = [];
   // いま .active が付いている行（無ければ null）。
@@ -224,12 +226,15 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const DWELL_MS = 500; // 何ms乗せ続けたら出すか（初回のみ。ポップアップ表示中は即時切替）
   const CLOSE_GRACE_MS = 200; // 離れてから閉じるまでの猶予
   let hoverPopup: HTMLDivElement | null = null;
+  let hoverRow: HTMLElement | null = null;
+  let dwellRow: HTMLDivElement | null = null;
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   // 応答の競合ガード。開く/閉じる/別単語へ移るたびに増やし、古い応答を破棄する。
   let hoverSeq = 0;
 
   const clearDwell = (): void => {
+    dwellRow = null;
     if (dwellTimer) {
       clearTimeout(dwellTimer);
       dwellTimer = undefined;
@@ -242,6 +247,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     }
   };
   const hideHoverPopup = (): void => {
+    hoverRow = null;
     clearDwell();
     clearClose();
     hoverSeq++; // 進行中の応答を無効化
@@ -379,6 +385,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const openHoverPopup = (row: HTMLElement, word: string, sentence: string): void => {
     if (!cb.onExplainWord && !cb.onExplain) return;
     clearClose();
+    hoverRow = row;
     const seq = ++hoverSeq;
     if (!hoverPopup) {
       hoverPopup = document.createElement('div');
@@ -416,6 +423,17 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   };
 
   function append(entry: TranscriptEntry): void {
+    const existing = entriesById.get(entry.id);
+    if (existing) {
+      if (existing.entry.english === entry.english) return;
+      if (hoverRow === existing.row || dwellRow === existing.row) hideHoverPopup();
+      existing.entry.english = entry.english;
+      renderWords(existing.entry, existing.row, existing.en);
+      jaById.get(entry.id)!.textContent = '';
+      followBottom();
+      return;
+    }
+    entry = { ...entry };
     const row = document.createElement('div');
     row.className = 'row';
     row.addEventListener('click', () => cb.onSeek(entry.videoTime));
@@ -428,6 +446,20 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const en = document.createElement('div');
     en.className = 'en';
 
+    entriesById.set(entry.id, { entry, row, en });
+    renderWords(entry, row, en);
+
+    const ja = document.createElement('div');
+    ja.className = 'ja';
+    row.append(en, ja);
+    list.appendChild(row);
+    jaById.set(entry.id, ja);
+    rows.push({ videoTime: entry.videoTime, el: row });
+    followBottom();
+  }
+
+  function renderWords(entry: TranscriptEntry, row: HTMLDivElement, en: HTMLDivElement): void {
+    en.replaceChildren();
     // 単語ごとに span を起こし、その単語のホバーで意味取得を発火する（Language Reactor 風）。
     // 単語間移動はポップアップ表示中なら即時で切り替わる（初回のみドウェル待ち）。
     for (const tok of tokenizeLine(entry.english)) {
@@ -445,6 +477,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
           // すでに表示中（または猶予中）なら、ドウェルなしで即時切替。
           openHoverPopup(row, tok.text, entry.english);
         } else {
+          dwellRow = row;
           dwellTimer = setTimeout(
             () => openHoverPopup(row, tok.text, entry.english),
             DWELL_MS,
@@ -453,13 +486,9 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       });
       en.appendChild(wspan);
     }
+  }
 
-    const ja = document.createElement('div');
-    ja.className = 'ja';
-    row.append(en, ja);
-    list.appendChild(row);
-    jaById.set(entry.id, ja);
-    rows.push({ videoTime: entry.videoTime, el: row });
+  function followBottom(): void {
     // 追従中のときだけ最下部へ送る（履歴を遡って読んでいる間は勝手に飛ばさない）。
     if (following) {
       list.scrollTop = list.scrollHeight;
@@ -467,7 +496,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     }
   }
 
-  function setTranslation(id: number, japanese: string): void {
+  function setTranslation(id: number, japanese: string, expectedEnglish?: string): void {
+    if (expectedEnglish !== undefined && entriesById.get(id)?.entry.english !== expectedEnglish) return;
     const ja = jaById.get(id);
     if (ja) ja.textContent = japanese;
   }
@@ -497,6 +527,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     list.replaceChildren();
     rows.length = 0;
     jaById.clear();
+    entriesById.clear();
     activeRow = null;
     following = true; // 新しい作品は最下部へ追従させる
     lastAutoScrollTop = -1;
@@ -518,6 +549,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     hideHoverPopup();
     host.remove();
     jaById.clear();
+    entriesById.clear();
   }
 
   document.addEventListener('fullscreenchange', onFullscreenChange, true);

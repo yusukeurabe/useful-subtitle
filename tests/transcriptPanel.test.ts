@@ -10,6 +10,37 @@ import {
 
 const HOST_ID = 'useful-subtitle-transcript';
 
+it('updates a rolling row in place and uses the latest sentence for hover explanations', async () => {
+  vi.useFakeTimers();
+  document.body.replaceChildren();
+  const onSeek = vi.fn();
+  const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'おはよう', explanation: '説明' });
+  const panel = createTranscriptPanel({ onSeek, onExplain });
+  try {
+    panel.append({ id: 1, english: 'Good', videoTime: 10 });
+    const shadow = document.getElementById(HOST_ID)!.shadowRoot!;
+    const row = shadow.querySelector<HTMLDivElement>('.row')!;
+    wordsOf(row)[0].dispatchEvent(new MouseEvent('mouseenter'));
+    panel.setTranslation(1, '途中の訳', 'Good');
+    panel.append({ id: 1, english: 'Good morning', videoTime: 11 });
+    vi.advanceTimersByTime(500);
+    expect(onExplain).not.toHaveBeenCalled(); // Removed word must not fire its pending hover.
+    expect(shadow.querySelectorAll('.row')).toHaveLength(1);
+    expect(shadow.querySelector('.row')).toBe(row);
+    expect(row.querySelector('.ja')!.textContent).toBe('');
+    panel.setTranslation(1, '古い応答', 'Good');
+    expect(row.querySelector('.ja')!.textContent).toBe('');
+    wordsOf(row)[1].dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledWith('Good morning');
+    expect(shadow.querySelector('.hover-popup')!.textContent).toContain('おはよう');
+    row.click();
+    expect(onSeek).toHaveBeenCalledWith(10);
+    panel.append({ id: 1, english: 'Good morning everyone', videoTime: 12 });
+    expect(shadow.querySelector('.hover-popup')).toBeNull();
+  } finally { panel.destroy(); vi.useRealTimers(); }
+});
+
 /** 行内の単語 span を取得する（ホバー対象）。 */
 function wordsOf(row: HTMLDivElement): HTMLSpanElement[] {
   return Array.from(row.querySelectorAll<HTMLSpanElement>('.en .word'));

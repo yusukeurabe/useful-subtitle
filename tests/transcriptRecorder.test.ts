@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createTranscriptRecorder } from '../src/content/transcriptRecorder';
+import { createTranscriptRecorder, createRollingTranscriptRecorder } from '../src/content/transcriptRecorder';
 
 describe('createTranscriptRecorder — 履歴へ記録すべきかの判定', () => {
   it('最初の字幕は時刻に関わらず記録する', () => {
@@ -54,5 +54,37 @@ describe('createTranscriptRecorder — 履歴へ記録すべきかの判定', ()
     // 新エピソードは時刻 0 付近から始まるが、記録済み最大(3600)に抑制されず記録する
     expect(r.shouldRecord(5)).toBe(true);
     expect(r.shouldRecord(12)).toBe(true);
+  });
+});
+
+describe('YouTube の途中字幕の統合', () => {
+  it('同じ時刻の追記・大小文字・句読点の変更をまとめ、短い途中表示には戻さない', () => {
+    const r = createRollingTranscriptRecorder();
+    expect(r.record('good', 10)).toEqual({ id: 1, english: 'good', videoTime: 10 });
+    expect(r.record('Good morning,', 10)).toEqual({ id: 1, english: 'Good morning,', videoTime: 10 });
+    expect(r.record('Good morning.', 10.2)?.id).toBe(1);
+    expect(r.record('Good', 10.3)).toBeNull();
+    expect(r.record('Good morning, everyone', 10.4)).toEqual({ id: 1, english: 'Good morning, everyone', videoTime: 10 });
+  });
+
+  it('異なる文・単語境界・間の空いた同じ台詞を別の行にする', () => {
+    const r = createRollingTranscriptRecorder();
+    expect(r.record('Go', 1)?.id).toBe(1);
+    expect(r.record('Good morning', 1.5)?.id).toBe(2);
+    expect(r.record('Good morning', 6)?.id).toBe(3);
+    expect(r.record('We are leaving', 6.5)?.id).toBe(4);
+  });
+
+  it('巻き戻し・明示的なシークで過去行を書き換えず、リセット後に ID を再利用しない', () => {
+    const r = createRollingTranscriptRecorder();
+    r.record('Good morning', 10);
+    r.record('Good morning everyone', 11);
+    expect(r.record('Good', 10)).toBeNull();
+    expect(r.record('Good morning everyone', 11)).toBeNull();
+    expect(r.record('Next', 12)?.id).toBe(2);
+    r.breakSequence();
+    expect(r.record('Next stop', 13)?.id).toBe(3);
+    r.reset();
+    expect(r.record('New video', 0)).toEqual({ id: 4, english: 'New video', videoTime: 0 });
   });
 });
