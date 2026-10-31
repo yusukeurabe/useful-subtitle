@@ -44,10 +44,12 @@ const STYLES = `
   position: fixed; left: 50%; transform: translateX(-50%);
   max-width: 80vw; text-align: center; pointer-events: auto; user-select: none;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: rgba(0, 0, 0, 0.6); border-radius: 4px;
+  padding: 6px 10px; box-sizing: border-box;
 }
 .original {
   position: relative; display: inline-block;
-  font-size: clamp(20px, 3.2vw, 40px); font-weight: 700; line-height: 1.3;
+  font-size: clamp(16px, 1.8vw, 28px); font-weight: 700; line-height: 1.3;
   color: #fff; text-shadow: 0 0 4px #000, 0 2px 6px #000;
 }
 .replay-btn {
@@ -63,10 +65,11 @@ const STYLES = `
 .word:hover { background: rgba(255, 255, 255, 0.28); }
 .word.selected { background: rgba(86, 156, 255, 0.6); }
 .translation {
-  margin-top: 6px; font-size: clamp(14px, 2vw, 24px); color: #ffe08a;
+  margin-top: 6px; font-size: clamp(13px, 1.4vw, 20px); color: #ffe08a;
   text-shadow: 0 0 4px #000, 0 2px 6px #000;
 }
 .translation.loading { opacity: 0.6; }
+.translation:empty { display: none; }
 .popup {
   position: fixed; max-width: 360px; min-width: 200px;
   background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
@@ -192,6 +195,18 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   // ネイティブ字幕を隠す（テキストは DOM に残るので読み取りは可能）。
   const hideStyle = document.createElement('style');
   hideStyle.textContent = `${(youtube ? YOUTUBE_CAPTION_SELECTORS : CAPTION_TEXT_SELECTORS).join(', ')} { visibility: hidden !important; }`;
+  if (youtube) {
+    // 実画面で確認した Language Reactor 専用 UI のみを隠す。標準字幕の DOM は残す。
+    // ホストがある間だけ適用するため、動画ページ離脱・destroy 時は元の表示へ戻る。
+    const languageReactorUi = [
+      '#lln-bottom-panel', '#lln-extension-controls', '.lln-toggle-vertical-view',
+      '.lln-yt-mini-playback-bar', '.lln-vertical-view', '.lln-vv-toggle-in-sidebar',
+      '#lln-vv-translations', '#lln-vv-image',
+    ];
+    hideStyle.textContent += `\n${languageReactorUi.map(selector =>
+      `body:has(#movie_player #useful-subtitle-overlay) ${selector}`,
+    ).join(',\n')} { display: none !important; }`;
+  }
 
   let popup: HTMLDivElement | null = null;
   let popupGeneration = 0;
