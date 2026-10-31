@@ -1,8 +1,8 @@
 /** 解説の言語。MVP では 'ja'（日本語）を既定とする。 */
 export type ExplanationLanguage = 'ja' | 'en' | 'both';
 
-/** AI プロバイダ。将来 'openai' を追加できるよう型で表現しておく。 */
-export type AiProvider = 'anthropic';
+/** AI の接続方式。保存済み API 設定から自動では切り替えない。 */
+export type AiProvider = 'anthropic' | 'claude-subscription';
 
 /** ユーザー設定（chrome.storage.local に保存）。 */
 export interface Settings {
@@ -66,6 +66,10 @@ export type ErrorCode =
   | 'RATE_LIMIT'
   | 'NETWORK'
   | 'CONTEXT_INVALIDATED'
+  | 'NATIVE_SETUP'
+  | 'TIMEOUT'
+  | 'BUSY'
+  | 'CANCELED'
   | 'UNKNOWN';
 
 export interface SuccessResponse {

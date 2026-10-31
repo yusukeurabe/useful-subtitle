@@ -9,7 +9,7 @@
     "128": "icons/icon-128.png"
   },
   "description": "Prime Video・YouTube の字幕の単語・フレーズ・イディオムをクリックすると Claude が日本語で解説します。",
-  "permissions": ["storage", "offscreen"],
+  "permissions": ["storage", "offscreen", "nativeMessaging"],
   "host_permissions": [
     "https://api.anthropic.com/*",
     "https://api.dictionaryapi.dev/*",

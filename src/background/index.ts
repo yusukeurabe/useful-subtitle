@@ -1,9 +1,10 @@
-import { handleRequest, type HandlerDeps } from './handler';
+import { type HandlerDeps } from './handler';
 import { getCached, setCached } from './cache';
 import { callAnthropic } from './aiClient';
 import { getSettings } from '../shared/settings';
 import { extractWordInfo, extractCambridgeWordInfo, CAMBRIDGE_BASE, type WordInfo } from '../shared/dictionary';
-import type { RequestMessage } from '../shared/types';
+import { createNativeClient } from './nativeClient';
+import { createRequestBoundary } from './requestBoundary';
 
 const DICT_API = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
 
@@ -68,24 +69,33 @@ async function playOffscreenAudio(url: string): Promise<void> {
   await chrome.runtime.sendMessage({ target: 'offscreen', url });
 }
 
+const native = createNativeClient();
 const deps: HandlerDeps = {
   getSettings,
   getCached,
   setCached,
   callAi: callAnthropic,
+  callSubscription: native.request,
   getWordInfo,
   playOffscreenAudio,
 };
 
-chrome.runtime.onMessage.addListener(
-  (message: RequestMessage & { target?: string }, _sender, sendResponse) => {
-    // offscreen 宛のメッセージは background では扱わない。
-    if (message?.target === 'offscreen') return;
-    handleRequest(message, deps).then(sendResponse);
-    // 非同期で sendResponse を呼ぶためチャンネルを開いたままにする。
-    return true;
-  },
-);
+const boundary = createRequestBoundary(deps, native);
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  const response = boundary.dispatch(message, sender);
+  if (!response) return;
+  void response.then(sendResponse).catch(() => sendResponse({ ok: false, code: 'UNKNOWN', error: '要求を処理できませんでした。' }));
+  return true;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && ['provider', 'model', 'explanationLanguage', 'apiKey', 'enabled', 'dualSubtitle'].some(key => key in changes)) {
+    boundary.settingsChanged();
+  }
+});
+chrome.tabs.onRemoved.addListener(tabId => boundary.dropTab(tabId));
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.status === 'loading' || change.url) boundary.dropTab(tabId);
+});
 
 // ツールバーアイコンのクリックで設定画面を開く。
 chrome.action.onClicked.addListener(() => {

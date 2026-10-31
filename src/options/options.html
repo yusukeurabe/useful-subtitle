@@ -92,6 +92,24 @@
     <p class="hint">YouTube は通常の動画ページで英語字幕を ON にしてください。Language Reactor など他の字幕拡張は OFF を推奨します。自動字幕の更新中は翻訳が遅れることがあります。</p>
 
     <div class="field">
+      <label for="provider">AI の接続方式</label>
+      <select id="provider">
+        <option value="anthropic">Anthropic API（従量課金）</option>
+        <option value="claude-subscription">Claude サブスク（この Mac の Claude Code）</option>
+      </select>
+    </div>
+
+    <div id="subscriptionArea" class="field" hidden>
+      <p>Claude Code をインストールし、利用する Claude Pro アカウントでログインしてください。接続プログラムの登録は初回のみ必要です。</p>
+      <p>拡張機能 ID: <code id="extensionId"></code></p>
+      <label for="setupCommand">Brave 用セットアップコマンド（選択してコピー）</label>
+      <input id="setupCommand" type="text" readonly />
+      <p class="hint">useful-subtitle のフォルダ（package.json がある場所）をターミナルで開き、上のコマンドを実行してください。登録後に拡張機能を再読み込みし、接続テストを実行します。</p>
+      <p class="hint">Claude / Claude Code と利用上限を共有します。月額内で使うには、Claude アカウントの「追加使用」を OFF にしてください。CLI のプラン名表示だけでは契約・課金設定を確認できません。</p>
+      <p class="hint">起動の待ち時間が加わり、全行のリアルタイム和訳は保証できません。必要に応じて下の「字幕一文の日本語訳も併記」を OFF にしてください。接続処理はローカルで動き、翻訳・解説のために字幕や選択した語句を Claude へ送信します。API への自動切り替えはありません。</p>
+    </div>
+
+    <div id="apiArea" class="field">
       <label for="apiKey">Anthropic API キー</label>
       <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
       <div class="hint">
@@ -144,6 +162,8 @@
       <input id="enabled" type="checkbox" />
       <label for="enabled">拡張機能を有効にする</label>
     </div>
+
+    <p class="hint">自動翻訳を OFF にすると、新しい自動翻訳の送信を停止します。拡張機能を OFF にすると、翻訳・解説の新しい送信を停止します。表示への反映や ON に戻した後の再開には、開いている動画タブの再読み込みが必要な場合があります。接続テストは OFF の状態でも使えます。</p>
 
     <div class="actions">
       <button id="test" type="button">接続テスト</button>

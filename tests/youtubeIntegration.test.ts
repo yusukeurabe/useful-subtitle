@@ -173,3 +173,19 @@ it.each([
   expect(mocks.overlay.setTranslation).toHaveBeenLastCalledWith({ kind: 'text', text: '現在の字幕の訳' });
   expect(mocks.panel.setTranslation).not.toHaveBeenCalled();
 });
+
+it('shows quota guidance inline while canceled translations remain silent', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=quota'));
+  document.body.innerHTML = '<div id="movie_player"><video class="html5-main-video"></video></div>';
+  const player = document.getElementById('movie_player')!;
+  mocks.request.mockResolvedValueOnce({ ok: false, code: 'RATE_LIMIT', error: '利用上限: 60秒停止します' })
+    .mockResolvedValueOnce({ ok: false, code: 'CANCELED', error: '取り消しました' });
+  await import('../src/content/index'); await Promise.resolve();
+  const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
+  const context: CaptionContext = { contentId: 'youtube:quota', active: true, isAd: false, player };
+  emit('Hello', context); await vi.advanceTimersByTimeAsync(350);
+  expect(mocks.overlay.setTranslation).toHaveBeenLastCalledWith({ kind: 'text', text: '利用上限: 60秒停止します' });
+  emit('Next', context); await vi.advanceTimersByTimeAsync(350);
+  expect(mocks.overlay.setTranslation).toHaveBeenLastCalledWith({ kind: 'none' });
+});

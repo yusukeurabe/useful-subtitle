@@ -9,6 +9,7 @@ function deps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     getCached: async () => undefined,
     setCached: async () => {},
     callAi: async () => 'AI_RESULT',
+    callSubscription: async () => 'NATIVE',
     getWordInfo: async () => ({ ipa: null, audioUrl: null }),
     playOffscreenAudio: async () => {},
     ...overrides,
@@ -190,4 +191,45 @@ describe('handleRequest', () => {
     expect(res).toEqual({ ok: true, text: 'CACHED_S' });
     expect(aiCalled).toBe(false);
   });
+});
+
+describe('subscription routing', () => {
+  it.each(['ping', 'translateLine', 'explainSentence', 'explainSelection'] as const)('routes %s without API key and never passes it to native', async type => {
+    const callAi = vi.fn();
+    const callSubscription = vi.fn<HandlerDeps['callSubscription']>(async () => 'NATIVE');
+    const res = await handleRequest(
+      { type, text: 'Hi', selection: 'Hi', context: 'Hi' },
+      deps({ getSettings: async () => ({ ...DEFAULT_SETTINGS, provider: 'claude-subscription' }), callAi, callSubscription }),
+      { tabId: 42 },
+    );
+    expect(res).toEqual({ ok: true, text: 'NATIVE' });
+    expect(callAi).not.toHaveBeenCalled();
+    expect(callSubscription.mock.calls[0]![0]).not.toHaveProperty('apiKey');
+    expect(callSubscription).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({ tabId: 42, kind: type === 'translateLine' ? 'translation' : 'interactive' }));
+  });
+  it('does not dispatch or return cached data after context invalidation during async cache read', async () => {
+    let current = true;
+    const callSubscription = vi.fn();
+    const res = await handleRequest({ type: 'translateLine', text: 'Hi' }, deps({
+      getSettings: async () => ({ ...DEFAULT_SETTINGS, provider: 'claude-subscription' }),
+      getCached: async () => { current = false; return 'STALE'; }, callSubscription,
+    }), { isCurrent: () => current });
+    expect(res).toMatchObject({ ok: false, code: 'CANCELED' });
+    expect(callSubscription).not.toHaveBeenCalled();
+  });
+});
+
+it('rejects an unsupported provider without falling back to paid API', async () => {
+  const callAi = vi.fn();
+  const result = await handleRequest({ type: 'ping' }, deps({ getSettings: async () => ({ ...DEFAULT_SETTINGS, apiKey: 'saved', provider: 'unknown' as never }), callAi }));
+  expect(result).toMatchObject({ ok: false, code: 'UNKNOWN' });
+  expect(callAi).not.toHaveBeenCalled();
+});
+
+it('does not cache an AI result after the context changes', async () => {
+  let current = true;
+  const setCached = vi.fn();
+  const result = await handleRequest({ type: 'translateLine', text: 'hello' }, deps({ callAi: async () => { current = false; return 'stale'; }, setCached }), { isCurrent: () => current });
+  expect(result).toMatchObject({ code: 'CANCELED' });
+  expect(setCached).not.toHaveBeenCalled();
 });
