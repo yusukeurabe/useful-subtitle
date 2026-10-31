@@ -36,3 +36,38 @@ export function createTranscriptRecorder(): TranscriptRecorder {
     },
   };
 }
+
+/** YouTube の語単位の追記を同じ履歴 ID にまとめる。Prime の記録規則とは分離する。 */
+export function createRollingTranscriptRecorder() {
+  let sequence = 0;
+  let frontier = -Infinity;
+  let current: { id: number; english: string; videoTime: number; lastTime: number } | undefined;
+  const normalize = (text: string): string => text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return {
+    record(english: string, videoTime: number) {
+      if (!Number.isFinite(videoTime)) return null;
+      if (videoTime < frontier) {
+        current = undefined;
+        return null;
+      }
+      if (!current && videoTime <= frontier) return null;
+      frontier = videoTime;
+      const previous = current && normalize(current.english);
+      const next = normalize(english);
+      // 連続する字幕の追記だけを統合。間が空いた同じ台詞や遠いシーク先は別の行にする。
+      if (current && videoTime - current.lastTime <= 3 && videoTime - current.videoTime <= 20
+        && previous && next && (next === previous || next.startsWith(`${previous} `) || previous.startsWith(`${next} `))) {
+        current.lastTime = videoTime;
+        // DOM の入れ替え途中で短くなった字幕で、完成済みの文を削らない。
+        if (previous.startsWith(`${next} `)) return null;
+        current = { ...current, english };
+      } else {
+        current = { id: ++sequence, english, videoTime, lastTime: videoTime };
+      }
+      const { id, videoTime: start } = current;
+      return { id, english: current.english, videoTime: start };
+    },
+    breakSequence() { current = undefined; },
+    reset() { current = undefined; frontier = -Infinity; },
+  };
+}

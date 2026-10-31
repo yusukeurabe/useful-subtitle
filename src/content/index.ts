@@ -5,7 +5,7 @@ import { toTrueCase } from '../shared/truecase';
 import { startCaptionObserver } from './captionObserver';
 import { createOverlay, type Overlay } from './overlay';
 import { createTranscriptPanel, type TranscriptPanel } from './transcriptPanel';
-import { createTranscriptRecorder } from './transcriptRecorder';
+import { createTranscriptRecorder, createRollingTranscriptRecorder } from './transcriptRecorder';
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { findVideo, seekVideo } from './videoControl';
@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   // 記録済み範囲を再生し直す間は記録せず、記録済み地点を追い越したら記録を再開する。
   // 消去ボタンより先に宣言しておく（onClearHistory から参照するため）。
   const recorder = createTranscriptRecorder();
+  const rollingRecorder = createRollingTranscriptRecorder();
 
   // 履歴パネル。消去ボタン（onClearHistory）は履歴の全消去＋記録位置の初期化を束ねる。
   // 押下後に再生された字幕からまた記録が始まる。panel 自身を参照するので let で先に宣言する。
@@ -58,6 +59,7 @@ async function main(): Promise<void> {
     historyGeneration++;
     panel?.clear();
     recorder.reset();
+    rollingRecorder.reset();
   };
   panel = settings.showTranscriptPanel
     ? createTranscriptPanel({
@@ -125,6 +127,7 @@ async function main(): Promise<void> {
     for (const ev of ['timeupdate', 'seeked'] as const) {
       document.addEventListener(ev, syncActiveRow, true);
     }
+    if (youtube) document.addEventListener('seeking', () => rollingRecorder.breakSequence(), true);
   }
 
   // 広告復帰直後に同じ字幕を履歴へ二重記録しないため、直近の字幕を保持する。
@@ -141,6 +144,7 @@ async function main(): Promise<void> {
     if (youtube && ((wasActive && !context.active) || (!wasAd && context.isAd))) {
       generation++;
       notifyContextChanged();
+      rollingRecorder.breakSequence();
     }
     if (context.contentId !== previousId) beforeAdText = '';
     else if (context.isAd && !wasAd) beforeAdText = currentText;
@@ -168,9 +172,12 @@ async function main(): Promise<void> {
 
     // 巻き戻して記録済み範囲を再生し直している間は履歴へ重複記録しない。
     // 画面上の字幕・翻訳（overlay）は再視聴中も従来どおり表示する。
-    const recordedId = panel && text !== resumedText && recorder.shouldRecord(videoTime) ? ++entryId : null;
-    if (recordedId !== null) {
-      panel?.append({ id: recordedId, english: text, videoTime });
+    const entry = !panel || text === resumedText ? null
+      : youtube ? rollingRecorder.record(text, videoTime)
+        : recorder.shouldRecord(videoTime) ? { id: ++entryId, english: text, videoTime } : null;
+    const recordedId = entry?.id ?? null;
+    if (entry) {
+      panel?.append(entry);
       // 追加した行を即座にアクティブにする（timeupdate を待たずに反映）。
       panel?.updateActiveByTime(videoTime);
     }
@@ -192,7 +199,7 @@ async function main(): Promise<void> {
       void sendRequest({ type: 'translateLine', text }).then((res) => {
         if (!validSession()) return;
         if (res.ok && recordedId !== null && requestHistoryGeneration === historyGeneration) {
-          panel?.setTranslation(recordedId, res.text);
+          panel?.setTranslation(recordedId, res.text, text);
         }
         if (version !== lineVersion) return;
         overlay.setTranslation(res.ok

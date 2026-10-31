@@ -32,6 +32,52 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('keeps progressive YouTube words in one history row with the original seek time', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=rolling'));
+  document.body.innerHTML = '<div id="movie_player"><video class="html5-main-video"></video></div>';
+  const player = document.getElementById('movie_player')!;
+  const video = player.querySelector('video')!;
+  vi.spyOn(video, 'play').mockResolvedValue();
+  const actual = await vi.importActual<typeof import('../src/content/transcriptPanel')>('../src/content/transcriptPanel');
+  let panel!: import('../src/content/transcriptPanel').TranscriptPanel;
+  mocks.createPanel.mockImplementation(callbacks => (panel = actual.createTranscriptPanel(callbacks)));
+  const responses: ((value: { ok: true; text: string }) => void)[] = [];
+  mocks.request.mockImplementation(() => new Promise(resolve => responses.push(resolve)));
+  await import('../src/content/index'); await Promise.resolve();
+  const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
+  const context = { contentId: 'youtube:rolling', active: true, isAd: false, player };
+  const captions = ['Good', 'Good ', 'Good morning,', 'Good morning, sleepy',
+    'Good morning, sleepy heads.', 'Good morning, sleepy heads. It',
+    'Good morning, sleepy heads. It is', 'Good morning, sleepy heads. It is day',
+    'Good morning, sleepy heads. It is day nine'];
+  try {
+    for (const [i, text] of captions.entries()) {
+      video.currentTime = 10 + i * 0.4;
+      emit(text, context);
+      vi.advanceTimersByTime(400);
+    }
+    const shadow = document.getElementById('useful-subtitle-transcript')!.shadowRoot!;
+    expect(shadow.querySelectorAll('.row')).toHaveLength(1);
+    expect(shadow.querySelector('.en')!.textContent).toBe('Good morning, sleepy heads. It is day nine');
+    // An older, shorter caption's translation must not overwrite the expanded row.
+    responses[0]({ ok: true, text: '途中の訳' }); await Promise.resolve();
+    expect(shadow.querySelector('.ja')!.textContent).toBe('');
+    responses.at(-1)!({ ok: true, text: 'おはよう、9日目です' }); await Promise.resolve();
+    expect(shadow.querySelector('.ja')!.textContent).toBe('おはよう、9日目です');
+    (shadow.querySelector('.row') as HTMLElement).click();
+    expect(video.currentTime).toBe(10);
+    video.currentTime = 14;
+    emit('We are leaving now', context);
+    expect(shadow.querySelectorAll('.row')).toHaveLength(2);
+    // Replaying already recorded words must neither append nor shorten a row.
+    video.currentTime = 10.4;
+    emit('Good morning,', context);
+    expect(shadow.querySelectorAll('.row')).toHaveLength(2);
+    expect(shadow.querySelector('.en')!.textContent).toBe('Good morning, sleepy heads. It is day nine');
+  } finally { panel.destroy(); emit(null, context); }
+});
+
 it('integrates immediate English, debounce, stale response guards, ads and same-ID duration changes', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=first'));
