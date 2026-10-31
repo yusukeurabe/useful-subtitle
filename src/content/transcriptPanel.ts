@@ -73,10 +73,14 @@ const STYLES = `
   flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; font-size: 13px; font-weight: 700; border-bottom: 1px solid #444;
 }
-.header .x { cursor: pointer; color: #aaa; font-size: 16px; line-height: 1; }
-.header .actions { display: flex; align-items: center; gap: 10px; }
-.header .clear { cursor: pointer; color: #aaa; font-size: 15px; line-height: 1; }
-.header .clear:hover { color: #fff; }
+.header .actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.header .actions button {
+  padding: 5px 8px; border: 1px solid #555; border-radius: 5px;
+  background: #292929; color: #eee; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 500; line-height: 1.2;
+}
+.header .actions button:hover { background: #3a3a3a; color: #fff; }
+.header .actions button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
 .list { flex: 1 1 auto; overflow-y: auto; padding: 6px 0; }
 .row {
   padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -143,22 +147,24 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   header.className = 'header';
   const title = document.createElement('span');
   title.textContent = 'Transcript History';
-  const closeX = document.createElement('span');
-  closeX.className = 'x';
-  closeX.textContent = '×';
-  closeX.title = 'Close panel';
-  // 右側のボタン群。space-between で散らばらないよう1つにまとめる（🗑 を × の左隣に置く）。
+  const closeButton = document.createElement('button');
+  closeButton.type = 'button';
+  closeButton.className = 'x';
+  closeButton.textContent = 'Close';
+  closeButton.title = 'Close panel';
+  // 履歴の削除とパネルを閉じる操作を文字付きボタンで区別する。
   const actions = document.createElement('span');
   actions.className = 'actions';
   if (cb.onClearHistory) {
-    const clearBtn = document.createElement('span');
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
     clearBtn.className = 'clear';
-    clearBtn.textContent = '🗑';
-    clearBtn.title = 'Clear all history';
+    clearBtn.textContent = 'Delete';
+    clearBtn.title = 'Delete all subtitle history';
     clearBtn.addEventListener('click', () => cb.onClearHistory?.());
     actions.append(clearBtn);
   }
-  actions.append(closeX);
+  actions.append(closeButton);
   header.append(title, actions);
   const list = document.createElement('div');
   list.className = 'list';
@@ -176,7 +182,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     panelHost.style.display = visible ? '' : 'none';
     reopen.style.display = visible ? 'none' : '';
   };
-  closeX.addEventListener('click', () => setVisible(false));
+  closeButton.addEventListener('click', () => setVisible(false));
   reopen.addEventListener('click', () => setVisible(true));
 
   const jaById = new Map<number, HTMLDivElement>();

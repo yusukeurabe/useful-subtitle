@@ -39,6 +39,47 @@ afterEach(() => {
 });
 
 describe('YouTube captions and lifecycle', () => {
+  it('hides Language Reactor UI while preserving native captions and restores it on departure', async () => {
+    const p = player();
+    p.insertAdjacentHTML('beforeend', '<div id="lln-bottom-panel"><div id="lln-main-subs">LR caption</div></div><div id="lln-extension-controls">ON</div><div class="lln-toggle-vertical-view">Toggle</div><div class="lln-yt-mini-playback-bar">Progress</div>');
+    document.body.insertAdjacentHTML('beforeend', '<div class="lln-vertical-view">LR history</div><div class="lln-vv-toggle-in-sidebar">Subtitles</div><div id="lln-vv-translations">LR translation</div><div id="lln-vv-image">LR image</div><div id="unrelated-panel">Other extension</div>');
+    const lrElements = [
+      document.getElementById('lln-bottom-panel')!, document.getElementById('lln-extension-controls')!,
+      document.querySelector('.lln-toggle-vertical-view')!, document.querySelector('.lln-yt-mini-playback-bar')!,
+      document.querySelector('.lln-vertical-view')!, document.querySelector('.lln-vv-toggle-in-sidebar')!,
+      document.getElementById('lln-vv-translations')!, document.getElementById('lln-vv-image')!,
+    ];
+    overlay = createOverlay({ onLookup() {}, onPlayAudio() {}, onSeek() {} }, { bottomPercent: 10, onBottomChange() {} });
+    for (const element of lrElements) expect(getComputedStyle(element).display).toBe('none');
+    expect(getComputedStyle(document.getElementById('unrelated-panel')!).display).not.toBe('none');
+    const change = vi.fn();
+    observer = startCaptionObserver(change);
+    await frame();
+    expect(change.mock.calls.at(-1)?.[0]).toBe('Hello world');
+    p.querySelector('.ytp-caption-segment')!.textContent = 'Next caption';
+    await frame();
+    expect(change.mock.calls.at(-1)?.[0]).toBe('Next caption');
+    expect(document.getElementById('lln-main-subs')!.textContent).toBe('LR caption');
+    // LR can mount after Useful Subtitle, without another observer or DOM removal.
+    document.querySelector('.lln-vertical-view')!.remove();
+    const late = document.createElement('div'); late.className = 'lln-vertical-view'; document.body.append(late);
+    expect(getComputedStyle(late).display).toBe('none');
+    navigate('/'); overlay.syncMount();
+    expect(getComputedStyle(late).display).not.toBe('none');
+    navigate('/watch?v=first'); overlay.syncMount();
+    expect(getComputedStyle(late).display).toBe('none');
+    overlay.destroy();
+    expect(getComputedStyle(late).display).not.toBe('none');
+  });
+
+  it('does not suppress Language Reactor on Prime Video', () => {
+    vi.stubGlobal('location', new URL('https://www.primevideo.com/detail/B0FIRST'));
+    document.body.innerHTML = '<div id="lln-bottom-panel">Other subtitles</div><div class="lln-vertical-view">History</div>';
+    overlay = createOverlay({ onLookup() {}, onPlayAudio() {}, onSeek() {} }, { bottomPercent: 10, onBottomChange() {} });
+    expect(getComputedStyle(document.getElementById('lln-bottom-panel')!).display).not.toBe('none');
+    expect(getComputedStyle(document.querySelector('.lln-vertical-view')!).display).not.toBe('none');
+  });
+
   it('reads native segments only, joins lines and ignores other subtitle extensions', async () => {
     const p = player();
     p.querySelector('.captions-text')!.insertAdjacentHTML('beforeend', '<span class="caption-visual-line"><span class="ytp-caption-segment">Second line</span></span>');
