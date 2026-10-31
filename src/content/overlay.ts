@@ -44,6 +44,8 @@ const STYLES = `
   position: fixed; left: 50%; transform: translateX(-50%);
   max-width: 80vw; text-align: center; pointer-events: auto; user-select: none;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  background: rgba(0, 0, 0, 0.6); border-radius: 4px;
+  padding: 6px 10px; box-sizing: border-box;
 }
 .original {
   position: relative; display: inline-block;
@@ -67,6 +69,7 @@ const STYLES = `
   text-shadow: 0 0 4px #000, 0 2px 6px #000;
 }
 .translation.loading { opacity: 0.6; }
+.translation:empty { display: none; }
 .popup {
   position: fixed; max-width: 360px; min-width: 200px;
   background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
