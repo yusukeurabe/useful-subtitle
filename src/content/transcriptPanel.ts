@@ -58,6 +58,50 @@ export function nextFollowState(opts: {
   return opts.activeRowVisible || opts.nearBottom;
 }
 
+export interface ReopenPosition {
+  left: number;
+  top: number;
+}
+
+const REOPEN_SIZE = 28;
+const REOPEN_MARGIN = 4;
+const DRAG_THRESHOLD_PX = 4;
+const REOPEN_POSITION_KEY = 'transcriptReopenPosition';
+
+/** 再表示ボタンの左上座標を、ボタン全体が画面内（余白つき）に収まるよう丸める純粋関数。 */
+export function clampReopenPosition(
+  pos: ReopenPosition,
+  box: { width: number; height: number; viewportWidth: number; viewportHeight: number },
+): ReopenPosition {
+  const maxLeft = Math.max(REOPEN_MARGIN, box.viewportWidth - box.width - REOPEN_MARGIN);
+  const maxTop = Math.max(REOPEN_MARGIN, box.viewportHeight - box.height - REOPEN_MARGIN);
+  return {
+    left: Math.round(Math.min(Math.max(pos.left, REOPEN_MARGIN), maxLeft)),
+    top: Math.round(Math.min(Math.max(pos.top, REOPEN_MARGIN), maxTop)),
+  };
+}
+
+async function loadReopenPosition(): Promise<ReopenPosition | null> {
+  try {
+    const stored = await chrome.storage.local.get(REOPEN_POSITION_KEY);
+    const pos = stored[REOPEN_POSITION_KEY] as Partial<ReopenPosition> | undefined;
+    if (pos && Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
+      return { left: pos.left as number, top: pos.top as number };
+    }
+  } catch {
+    // 拡張の再読み込み直後などで storage が使えなくても、既定位置で動かす。
+  }
+  return null;
+}
+
+function saveReopenPosition(pos: ReopenPosition): void {
+  try {
+    void chrome.storage.local.set({ [REOPEN_POSITION_KEY]: pos }).catch(() => {});
+  } catch {
+    // 保存できなくてもこのページ内では動かした位置のまま使える。
+  }
+}
+
 const STYLES = `
 .host {
   position: fixed; top: 0; right: 0; width: 320px; height: 100%;
@@ -96,11 +140,14 @@ const STYLES = `
 .row .en .word:hover { background: rgba(255, 255, 255, 0.22); }
 .reopen {
   position: fixed; top: 8px; right: 8px; z-index: 2147483000;
+  width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
   background: rgba(20,20,20,0.82); color: #fff; border: 1px solid #555;
-  border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer;
-  pointer-events: auto;
+  border-radius: 6px; font-size: 14px; line-height: 1; cursor: grab;
+  pointer-events: auto; touch-action: none; user-select: none;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
+.reopen.dragging { cursor: grabbing; }
 .hover-popup {
   position: fixed; max-width: 320px; min-width: 200px;
   background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
@@ -172,18 +219,91 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   panelHost.appendChild(panel);
   shadow.appendChild(panelHost);
 
+  // 閉じている間の再表示ボタン。裏の要素を塞がないよう小さな正方形にし、
+  // ドラッグで好きな位置へ動かせる（位置は chrome.storage に記憶する）。
   const reopen = document.createElement('button');
+  reopen.type = 'button';
   reopen.className = 'reopen';
-  reopen.textContent = '☰ Transcript';
+  reopen.textContent = '☰';
+  reopen.title = 'Transcript を開く（ドラッグで移動）';
+  reopen.setAttribute('aria-label', 'Open transcript');
   reopen.style.display = 'none';
   shadow.appendChild(reopen);
 
   const setVisible = (visible: boolean): void => {
     panelHost.style.display = visible ? '' : 'none';
     reopen.style.display = visible ? 'none' : '';
+    if (!visible) clampReopen();
   };
   closeButton.addEventListener('click', () => setVisible(false));
-  reopen.addEventListener('click', () => setVisible(true));
+
+  // 動かした位置（左上座標）。null なら既定の右上。
+  let reopenPos: ReopenPosition | null = null;
+  const applyReopenPos = (pos: ReopenPosition): void => {
+    const size = reopen.getBoundingClientRect();
+    const clamped = clampReopenPosition(pos, {
+      width: size.width || REOPEN_SIZE,
+      height: size.height || REOPEN_SIZE,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    });
+    reopenPos = clamped;
+    reopen.style.left = `${clamped.left}px`;
+    reopen.style.top = `${clamped.top}px`;
+    reopen.style.right = 'auto';
+  };
+  // ウィンドウ縮小などで画面外へはみ出さないよう収め直す。
+  const clampReopen = (): void => {
+    if (reopenPos) applyReopenPos(reopenPos);
+  };
+  window.addEventListener('resize', clampReopen);
+  void loadReopenPosition().then((pos) => {
+    if (pos && !reopenPos) applyReopenPos(pos);
+  });
+
+  // 一定距離動いたらドラッグとみなし、離した直後のクリック（パネルを開く）は抑止する。
+  let drag: { pointerId: number; startX: number; startY: number; offsetX: number; offsetY: number; moved: boolean } | null = null;
+  let suppressClick = false;
+  reopen.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    const rect = reopen.getBoundingClientRect();
+    drag = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      moved: false,
+    };
+    reopen.setPointerCapture?.(e.pointerId);
+  });
+  reopen.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < DRAG_THRESHOLD_PX) return;
+    drag.moved = true;
+    reopen.classList.add('dragging');
+    applyReopenPos({ left: e.clientX - drag.offsetX, top: e.clientY - drag.offsetY });
+  });
+  // pointercancel の後はクリックが来ないので、抑止フラグは pointerup のときだけ立てる。
+  const endDrag = (e: PointerEvent, isClickNext: boolean): void => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (drag.moved) {
+      suppressClick = isClickNext;
+      reopen.classList.remove('dragging');
+      if (reopenPos) saveReopenPosition(reopenPos);
+    }
+    reopen.releasePointerCapture?.(e.pointerId);
+    drag = null;
+  };
+  reopen.addEventListener('pointerup', (e) => endDrag(e, true));
+  reopen.addEventListener('pointercancel', (e) => endDrag(e, false));
+  reopen.addEventListener('click', () => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    setVisible(true);
+  });
 
   const jaById = new Map<number, HTMLDivElement>();
   const entriesById = new Map<number, { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement }>();
@@ -552,6 +672,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   function destroy(): void {
     document.removeEventListener('fullscreenchange', onFullscreenChange, true);
     document.removeEventListener('keydown', onHoverKeyDown, true);
+    window.removeEventListener('resize', clampReopen);
     hideHoverPopup();
     host.remove();
     jaById.clear();

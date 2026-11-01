@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  clampReopenPosition,
   createTranscriptPanel,
   nextFollowState,
   type TranscriptPanel,
@@ -625,5 +626,95 @@ describe('createTranscriptPanel — 履歴の手動消去ボタン', () => {
   it('onClearHistory 未指定なら消去ボタンは表示されない', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     expect(clearButton()).toBeNull();
+  });
+});
+
+describe('clampReopenPosition — 再表示ボタンを画面内に収める', () => {
+  const box = { width: 28, height: 28, viewportWidth: 800, viewportHeight: 600 };
+
+  it('画面内の位置はそのまま（整数に丸める）', () => {
+    expect(clampReopenPosition({ left: 100.4, top: 200.6 }, box)).toEqual({ left: 100, top: 201 });
+  });
+
+  it('左上へはみ出すと余白 4px の位置に収める', () => {
+    expect(clampReopenPosition({ left: -50, top: -10 }, box)).toEqual({ left: 4, top: 4 });
+  });
+
+  it('右下へはみ出すとボタン全体が見える位置に収める', () => {
+    expect(clampReopenPosition({ left: 9999, top: 9999 }, box)).toEqual({ left: 768, top: 568 });
+  });
+});
+
+describe('createTranscriptPanel — 再表示ボタン（小型・ドラッグ移動）', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+  });
+
+  function shadow(): ShadowRoot {
+    return document.getElementById(HOST_ID)!.shadowRoot!;
+  }
+  function closePanel(): HTMLButtonElement {
+    shadow().querySelector<HTMLButtonElement>('.x')!.click();
+    return shadow().querySelector<HTMLButtonElement>('.reopen')!;
+  }
+  function pointer(el: HTMLElement, type: string, x: number, y: number): void {
+    const ev = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+    Object.defineProperty(ev, 'pointerId', { value: 1 });
+    el.dispatchEvent(ev);
+  }
+  const panelVisible = (): boolean => shadow().querySelector<HTMLElement>('.host')!.style.display !== 'none';
+
+  it('閉じると文字なしのアイコンボタンだけが出る（占有面積を小さくする）', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    const reopen = closePanel();
+    expect(reopen.style.display).toBe('');
+    expect(reopen.textContent).toBe('☰');
+    expect(reopen.getAttribute('aria-label')).toBe('Open transcript');
+  });
+
+  it('動かさずにクリックするとパネルが開く', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    const reopen = closePanel();
+    pointer(reopen, 'pointerdown', 10, 10);
+    pointer(reopen, 'pointerup', 11, 10);
+    reopen.click();
+    expect(panelVisible()).toBe(true);
+  });
+
+  it('ドラッグすると位置が変わり、離した直後のクリックではパネルを開かない', async () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    const reopen = closePanel();
+    pointer(reopen, 'pointerdown', 10, 10);
+    pointer(reopen, 'pointermove', 110, 210);
+    pointer(reopen, 'pointerup', 110, 210);
+    reopen.click();
+    expect(panelVisible()).toBe(false);
+    // 掴んだ点（ボタン左上から 10px）を保ったまま動く
+    expect(reopen.style.left).toBe('100px');
+    expect(reopen.style.top).toBe('200px');
+    expect(reopen.style.right).toBe('auto');
+    await Promise.resolve();
+    const stored = await chrome.storage.local.get('transcriptReopenPosition');
+    expect(stored.transcriptReopenPosition).toEqual({ left: 100, top: 200 });
+    // 次のクリックは普通に開く
+    reopen.click();
+    expect(panelVisible()).toBe(true);
+  });
+
+  it('保存済みの位置があれば、その位置にボタンを置く', async () => {
+    await chrome.storage.local.set({ transcriptReopenPosition: { left: 50, top: 60 } });
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    await new Promise((r) => setTimeout(r, 0));
+    const reopen = closePanel();
+    expect(reopen.style.left).toBe('50px');
+    expect(reopen.style.top).toBe('60px');
   });
 });
