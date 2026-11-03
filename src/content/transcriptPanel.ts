@@ -23,6 +23,8 @@ export type TranscriptWordMeaning =
 export interface TranscriptPanelCallbacks {
   /** 行クリックでその場面へシークする。 */
   onSeek: (videoTime: number) => void;
+  /** 単語クリック時の処理。指定時は行のシークより優先する（未指定なら行クリックと同じくシーク）。 */
+  onWordClick?: () => void;
   /** 単語にホバーしたとき、その単語の意味（品詞別訳＋解説）を取得する。ポップアップ上段に出す。 */
   onExplainWord?: (word: string, sentence: string) => Promise<TranscriptWordMeaning>;
   /** 単語にホバーしたとき、その単語を含む字幕一文の意味（和訳＋解説）を取得する。ポップアップ下段に出す。 */
@@ -609,6 +611,12 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
             DWELL_MS,
           );
         }
+      });
+      wspan.addEventListener('click', (e) => {
+        if (!cb.onWordClick) return;
+        // 行へ伝えると seekVideo が再生を再開してしまう。
+        e.stopPropagation();
+        cb.onWordClick();
       });
       en.appendChild(wspan);
     }
