@@ -284,6 +284,40 @@ describe('createTranscriptPanel — クリックでシーク', () => {
     row.click(); // …クリックはちゃんとシークする
     expect(seeks).toEqual([7]);
   });
+
+  it('onWordClick 指定時は単語クリックでシークせず onWordClick だけ呼ぶ', () => {
+    const seeks: number[] = [];
+    const onWordClick = vi.fn();
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t), onWordClick });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 7 });
+
+    wordsOf(rowsOf()[0])[0].click();
+
+    expect(onWordClick).toHaveBeenCalledTimes(1);
+    expect(seeks).toEqual([]);
+  });
+
+  it('onWordClick 指定時も単語以外の行クリックはシークする', () => {
+    const seeks: number[] = [];
+    const onWordClick = vi.fn();
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t), onWordClick });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 7 });
+
+    rowsOf()[0].click();
+
+    expect(onWordClick).not.toHaveBeenCalled();
+    expect(seeks).toEqual([7]);
+  });
+
+  it('onWordClick 未指定なら単語クリックも行クリックと同じくシークする', () => {
+    const seeks: number[] = [];
+    panel = createTranscriptPanel({ onSeek: (t) => seeks.push(t) });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 7 });
+
+    wordsOf(rowsOf()[0])[0].click();
+
+    expect(seeks).toEqual([7]);
+  });
 });
 
 describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（上=単語 / 下=文）', () => {

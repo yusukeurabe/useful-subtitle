@@ -8,7 +8,7 @@ import { createTranscriptPanel, type TranscriptPanel } from './transcriptPanel';
 import { createTranscriptRecorder, createRollingTranscriptRecorder } from './transcriptRecorder';
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
-import { findVideo, seekVideo } from './videoControl';
+import { findVideo, pauseVideo, seekVideo } from './videoControl';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
 import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
@@ -64,6 +64,7 @@ async function main(): Promise<void> {
   panel = settings.showTranscriptPanel
     ? createTranscriptPanel({
         onSeek: seekVideo,
+        onWordClick: settings.autoPauseOnClick ? pauseVideo : undefined,
         onExplainWord: async (word, sentence) => {
           const res = await sendRequest({
             type: 'explainSelection',

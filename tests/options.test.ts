@@ -47,3 +47,76 @@ describe('options provider', () => {
     expect(field('status').textContent).toContain('APIキー');
   });
 });
+
+describe('options usage list', () => {
+  const states = (selector: string) =>
+    [...document.querySelectorAll(`.usage ${selector} .usage-state`)].map(cell => cell.textContent);
+  const switchStates = () =>
+    Object.fromEntries(
+      ['dualSubtitle', 'truecaseSubtitle', 'showTranscriptPanel', 'autoPause', 'enabled'].map(id => [
+        id,
+        field(id).closest('.row')?.querySelector('.usage-state')?.textContent,
+      ]),
+    );
+  const selectProvider = async (value: string) => {
+    field('provider').value = value;
+    field('provider').dispatchEvent(new Event('change'));
+    await flush();
+  };
+
+  it('shows API wording for the default provider', async () => {
+    await start();
+    expect(field('usageTitle').textContent).toBe('その他の API を使用する機能（従量課金）');
+    expect(states('[data-usage="used"]')).toEqual(Array(2).fill('API を使用する'));
+    expect(states('[data-usage="unused"]')).toEqual(Array(2).fill('使用しない'));
+    expect(field('usageNote').textContent).toContain('同じ内容の再表示では API を使用しません');
+  });
+  it('shows subscription wording for a saved subscription provider', async () => {
+    await saveSettings({ provider: 'claude-subscription' });
+    await start();
+    expect(field('usageTitle').textContent).toBe('その他のサブスク枠を使う機能');
+    expect(states('[data-usage="used"]')).toEqual(Array(2).fill('サブスク枠を使う'));
+    expect(states('[data-usage="unused"]')).toEqual(Array(2).fill('使わない'));
+    expect(field('usageNote').textContent).toContain('同じ内容の再表示では枠を使いません');
+  });
+  it('labels each feature switch with API wording', async () => {
+    await start();
+    expect(switchStates()).toEqual({
+      dualSubtitle: 'ON で API を使用する',
+      truecaseSubtitle: '使用しない',
+      showTranscriptPanel: 'カーソルを合わせると API を使用する',
+      autoPause: '使用しない',
+      enabled: 'OFF にすると使用しない',
+    });
+  });
+  it('switches the feature switch labels with the provider', async () => {
+    await start();
+    await selectProvider('claude-subscription');
+    expect(switchStates()).toEqual({
+      dualSubtitle: 'ON でサブスク枠を使う',
+      truecaseSubtitle: '使わない',
+      showTranscriptPanel: 'カーソルを合わせるとサブスク枠を使う',
+      autoPause: '使わない',
+      enabled: 'OFF にすると使わない',
+    });
+  });
+  it('places the feature switches between the provider and the usage list', async () => {
+    await start();
+    const follows = (a: string, b: string) =>
+      Boolean(field(a).compareDocumentPosition(field(b)) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows('provider', 'dualSubtitle')).toBe(true);
+    expect(follows('enabled', 'usageTitle')).toBe(true);
+  });
+  it('marks the usage heading with a warning sign', async () => {
+    await start();
+    expect(field('usageTitle').parentElement?.textContent).toContain('⚠️');
+  });
+  it('updates the wording as soon as the provider changes', async () => {
+    await start();
+    await selectProvider('claude-subscription');
+    expect(field('usageTitle').textContent).toBe('その他のサブスク枠を使う機能');
+    await selectProvider('anthropic');
+    expect(field('usageTitle').textContent).toBe('その他の API を使用する機能（従量課金）');
+    expect(states('[data-usage="used"]')).toEqual(Array(2).fill('API を使用する'));
+  });
+});
