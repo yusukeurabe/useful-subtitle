@@ -65,8 +65,7 @@ export async function handleRequest(
     };
     const settings = await deps.getSettings();
     ensureCurrent();
-    if ((req.type !== 'ping' && !settings.enabled)
-      || (req.type === 'translateLine' && !settings.dualSubtitle)) {
+    if (req.type === 'translateLine' && !settings.dualSubtitle) {
       throw new AiError('CANCELED', '設定で AI の処理が無効になっています。');
     }
     if (settings.provider !== 'anthropic' && settings.provider !== 'claude-subscription') {

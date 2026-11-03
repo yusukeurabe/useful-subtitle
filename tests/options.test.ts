@@ -53,7 +53,7 @@ describe('options usage list', () => {
     [...document.querySelectorAll(`.usage ${selector} .usage-state`)].map(cell => cell.textContent);
   const switchStates = () =>
     Object.fromEntries(
-      ['dualSubtitle', 'truecaseSubtitle', 'showTranscriptPanel', 'autoPause', 'enabled'].map(id => [
+      ['dualSubtitle', 'showTranscriptPanel'].map(id => [
         id,
         field(id).closest('.row')?.querySelector('.usage-state')?.textContent,
       ]),
@@ -64,11 +64,21 @@ describe('options usage list', () => {
     await flush();
   };
 
+  it('lists only the features that actually consume the quota', async () => {
+    await start();
+    expect([...document.querySelectorAll('.usage tr td:first-child')].map(cell => cell.textContent)).toEqual([
+      '字幕の語句をクリックしたときの解説',
+      '接続テスト',
+    ]);
+  });
+  it('has no switch for turning the whole extension off', async () => {
+    await start();
+    expect(document.getElementById('enabled')).toBeNull();
+  });
   it('shows API wording for the default provider', async () => {
     await start();
     expect(field('usageTitle').textContent).toBe('その他の API を使用する機能（従量課金）');
     expect(states('[data-usage="used"]')).toEqual(Array(2).fill('API を使用する'));
-    expect(states('[data-usage="unused"]')).toEqual(Array(2).fill('使用しない'));
     expect(field('usageNote').textContent).toContain('同じ内容の再表示では API を使用しません');
   });
   it('shows subscription wording for a saved subscription provider', async () => {
@@ -76,17 +86,13 @@ describe('options usage list', () => {
     await start();
     expect(field('usageTitle').textContent).toBe('その他のサブスク枠を使う機能');
     expect(states('[data-usage="used"]')).toEqual(Array(2).fill('サブスク枠を使う'));
-    expect(states('[data-usage="unused"]')).toEqual(Array(2).fill('使わない'));
     expect(field('usageNote').textContent).toContain('同じ内容の再表示では枠を使いません');
   });
   it('labels each feature switch with API wording', async () => {
     await start();
     expect(switchStates()).toEqual({
       dualSubtitle: 'ON で API を使用する',
-      truecaseSubtitle: '使用しない',
       showTranscriptPanel: 'カーソルを合わせると API を使用する',
-      autoPause: '使用しない',
-      enabled: 'OFF にすると使用しない',
     });
   });
   it('switches the feature switch labels with the provider', async () => {
@@ -94,18 +100,23 @@ describe('options usage list', () => {
     await selectProvider('claude-subscription');
     expect(switchStates()).toEqual({
       dualSubtitle: 'ON でサブスク枠を使う',
-      truecaseSubtitle: '使わない',
       showTranscriptPanel: 'カーソルを合わせるとサブスク枠を使う',
-      autoPause: '使わない',
-      enabled: 'OFF にすると使わない',
     });
+  });
+  it.each(['anthropic', 'claude-subscription'])('shows no usage label on switches that do not consume the quota (%s)', async provider => {
+    await start();
+    await selectProvider(provider);
+    for (const id of ['truecaseSubtitle', 'autoPause']) {
+      expect(field(id).closest('.row')?.querySelector('.usage-state')).toBeNull();
+    }
+    expect(document.body.textContent).not.toMatch(/使わない|使用しない/);
   });
   it('places the feature switches between the provider and the usage list', async () => {
     await start();
     const follows = (a: string, b: string) =>
       Boolean(field(a).compareDocumentPosition(field(b)) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows('provider', 'dualSubtitle')).toBe(true);
-    expect(follows('enabled', 'usageTitle')).toBe(true);
+    expect(follows('autoPause', 'usageTitle')).toBe(true);
   });
   it('marks the usage heading with a warning sign', async () => {
     await start();

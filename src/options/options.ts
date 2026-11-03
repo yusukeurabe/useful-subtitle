@@ -13,10 +13,8 @@ const API_USAGE = {
   note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では API を使用しません。',
   states: {
     used: 'API を使用する',
-    unused: '使用しない',
     whenOn: 'ON で API を使用する',
     onHover: 'カーソルを合わせると API を使用する',
-    stops: 'OFF にすると使用しない',
   },
 };
 const SUBSCRIPTION_USAGE = {
@@ -24,10 +22,8 @@ const SUBSCRIPTION_USAGE = {
   note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では枠を使いません。',
   states: {
     used: 'サブスク枠を使う',
-    unused: '使わない',
     whenOn: 'ON でサブスク枠を使う',
     onHover: 'カーソルを合わせるとサブスク枠を使う',
-    stops: 'OFF にすると使わない',
   },
 };
 
@@ -50,7 +46,6 @@ export async function init(): Promise<void> {
   const lang = el<HTMLSelectElement>('lang');
   const dualSubtitle = el<HTMLInputElement>('dualSubtitle');
   const autoPause = el<HTMLInputElement>('autoPause');
-  const enabled = el<HTMLInputElement>('enabled');
   const truecaseSubtitle = el<HTMLInputElement>('truecaseSubtitle');
   const showTranscriptPanel = el<HTMLInputElement>('showTranscriptPanel');
   const testBtn = el<HTMLButtonElement>('test');
@@ -71,7 +66,6 @@ export async function init(): Promise<void> {
   lang.value = s.explanationLanguage;
   dualSubtitle.checked = s.dualSubtitle;
   autoPause.checked = s.autoPauseOnClick;
-  enabled.checked = s.enabled;
   truecaseSubtitle.checked = s.truecaseSubtitle;
   showTranscriptPanel.checked = s.showTranscriptPanel;
 
@@ -88,13 +82,12 @@ export async function init(): Promise<void> {
       explanationLanguage: lang.value as ExplanationLanguage,
       dualSubtitle: dualSubtitle.checked,
       autoPauseOnClick: autoPause.checked,
-      enabled: enabled.checked,
       truecaseSubtitle: truecaseSubtitle.checked,
       showTranscriptPanel: showTranscriptPanel.checked,
     });
 
   for (const field of [
-    provider, apiKey, model, lang, dualSubtitle, autoPause, enabled,
+    provider, apiKey, model, lang, dualSubtitle, autoPause,
     truecaseSubtitle, showTranscriptPanel,
   ]) {
     field.addEventListener('change', () => {
