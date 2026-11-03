@@ -9,25 +9,35 @@ function el<T extends HTMLElement>(id: string): T {
 }
 
 const API_USAGE = {
-  title: 'API を使用する機能（従量課金）',
-  used: 'API を使用する',
-  unused: '使用しない',
+  title: 'その他の API を使用する機能（従量課金）',
   note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では API を使用しません。',
+  states: {
+    used: 'API を使用する',
+    unused: '使用しない',
+    whenOn: 'ON で API を使用する',
+    onHover: 'カーソルを合わせると API を使用する',
+    stops: 'OFF にすると使用しない',
+  },
 };
 const SUBSCRIPTION_USAGE = {
-  title: 'サブスク枠を使う機能',
-  used: 'サブスク枠を使う',
-  unused: '使わない',
+  title: 'その他のサブスク枠を使う機能',
   note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では枠を使いません。',
+  states: {
+    used: 'サブスク枠を使う',
+    unused: '使わない',
+    whenOn: 'ON でサブスク枠を使う',
+    onHover: 'カーソルを合わせるとサブスク枠を使う',
+    stops: 'OFF にすると使わない',
+  },
 };
 
 function renderUsage(provider: string): void {
   const usage = provider === 'claude-subscription' ? SUBSCRIPTION_USAGE : API_USAGE;
   el<HTMLElement>('usageTitle').textContent = usage.title;
   el<HTMLElement>('usageNote').textContent = usage.note;
-  document.querySelectorAll<HTMLElement>('[data-uses-ai]').forEach((row) => {
+  document.querySelectorAll<HTMLElement>('[data-usage]').forEach((row) => {
     const state = row.querySelector('.usage-state');
-    if (state) state.textContent = row.dataset.usesAi === 'true' ? usage.used : usage.unused;
+    if (state) state.textContent = usage.states[row.dataset.usage as keyof typeof usage.states];
   });
 }
 

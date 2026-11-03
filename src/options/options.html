@@ -59,8 +59,15 @@
         margin-top: 4px;
       }
       .usage-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
         font-size: 1rem;
-        margin: 0 0 4px;
+        margin: 0 0 8px;
+        padding: 6px 10px;
+        background: rgba(245, 158, 11, 0.16);
+        border-left: 4px solid #f59e0b;
+        border-radius: 4px;
       }
       .usage {
         width: 100%;
@@ -76,12 +83,16 @@
         padding-left: 16px !important;
         text-align: right;
         white-space: nowrap;
-      }
-      [data-uses-ai='true'] .usage-state {
         font-weight: 700;
       }
-      [data-uses-ai='false'] .usage-state {
+      .row .usage-state {
+        margin-left: auto;
+        font-size: 0.85rem;
+      }
+      [data-usage='unused'] .usage-state,
+      [data-usage='stops'] .usage-state {
         color: #888;
+        font-weight: 400;
       }
       .actions {
         margin-top: 24px;
@@ -124,35 +135,55 @@
       </select>
     </div>
 
+    <div class="field row" data-usage="whenOn">
+      <input id="dualSubtitle" type="checkbox" />
+      <label for="dualSubtitle">字幕一文の日本語訳も併記（デュアル字幕）</label>
+      <span class="usage-state"></span>
+    </div>
+
+    <div class="field row" data-usage="unused">
+      <input id="truecaseSubtitle" type="checkbox" />
+      <label for="truecaseSubtitle">字幕の大文字を読みやすく自動整形（無料・即時）</label>
+      <span class="usage-state"></span>
+    </div>
+
+    <div class="field row" data-usage="onHover">
+      <input id="showTranscriptPanel" type="checkbox" />
+      <label for="showTranscriptPanel">右側に字幕の履歴パネルを表示</label>
+      <span class="usage-state"></span>
+    </div>
+
+    <div class="field row" data-usage="unused">
+      <input id="autoPause" type="checkbox" />
+      <label for="autoPause">単語クリックで動画を自動一時停止</label>
+      <span class="usage-state"></span>
+    </div>
+
+    <div class="field row" data-usage="stops">
+      <input id="enabled" type="checkbox" />
+      <label for="enabled">拡張機能を有効にする</label>
+      <span class="usage-state"></span>
+    </div>
+
+    <p class="hint">自動翻訳を OFF にすると、新しい自動翻訳の送信を停止します。拡張機能を OFF にすると、翻訳・解説の新しい送信を停止します。表示への反映や ON に戻した後の再開には、開いている動画タブの再読み込みが必要な場合があります。接続テストは OFF の状態でも使えます。</p>
+
     <div class="field">
-      <h2 id="usageTitle" class="usage-title"></h2>
+      <h2 class="usage-title"><span aria-hidden="true">⚠️</span><span id="usageTitle"></span></h2>
       <table class="usage" aria-labelledby="usageTitle">
         <tbody>
-          <tr data-uses-ai="true">
-            <td>字幕の日本語訳の併記（ON のとき、字幕が変わるたびに自動）</td>
-            <td class="usage-state"></td>
-          </tr>
-          <tr data-uses-ai="true">
+          <tr data-usage="used">
             <td>字幕の語句をクリックしたときの解説</td>
             <td class="usage-state"></td>
           </tr>
-          <tr data-uses-ai="true">
-            <td>履歴パネルの単語・文にカーソルを合わせたときの解説</td>
-            <td class="usage-state"></td>
-          </tr>
-          <tr data-uses-ai="true">
+          <tr data-usage="used">
             <td>接続テスト</td>
             <td class="usage-state"></td>
           </tr>
-          <tr data-uses-ai="false">
+          <tr data-usage="unused">
             <td>元の字幕の表示、履歴の記録</td>
             <td class="usage-state"></td>
           </tr>
-          <tr data-uses-ai="false">
-            <td>大文字の自動整形</td>
-            <td class="usage-state"></td>
-          </tr>
-          <tr data-uses-ai="false">
+          <tr data-usage="unused">
             <td>発音記号の取得、音声の再生</td>
             <td class="usage-state"></td>
           </tr>
@@ -168,7 +199,7 @@
       <input id="setupCommand" type="text" readonly />
       <p class="hint">useful-subtitle のフォルダ（package.json がある場所）をターミナルで開き、上のコマンドを実行してください。登録後に拡張機能を再読み込みし、接続テストを実行します。</p>
       <p class="hint">Claude / Claude Code と利用上限を共有します。月額内で使うには、Claude アカウントの「追加使用」を OFF にしてください。CLI のプラン名表示だけでは契約・課金設定を確認できません。</p>
-      <p class="hint">起動の待ち時間が加わり、全行のリアルタイム和訳は保証できません。必要に応じて下の「字幕一文の日本語訳も併記」を OFF にしてください。接続処理はローカルで動き、翻訳・解説のために字幕や選択した語句を Claude へ送信します。API への自動切り替えはありません。</p>
+      <p class="hint">起動の待ち時間が加わり、全行のリアルタイム和訳は保証できません。必要に応じて上の「字幕一文の日本語訳も併記」を OFF にしてください。接続処理はローカルで動き、翻訳・解説のために字幕や選択した語句を Claude へ送信します。API への自動切り替えはありません。</p>
     </div>
 
     <div id="apiArea" class="field">
@@ -199,33 +230,6 @@
         <option value="both">日本語＋英語</option>
       </select>
     </div>
-
-    <div class="field row">
-      <input id="dualSubtitle" type="checkbox" />
-      <label for="dualSubtitle">字幕一文の日本語訳も併記（デュアル字幕）</label>
-    </div>
-
-    <div class="field row">
-      <input id="truecaseSubtitle" type="checkbox" />
-      <label for="truecaseSubtitle">字幕の大文字を読みやすく自動整形（無料・即時）</label>
-    </div>
-
-    <div class="field row">
-      <input id="showTranscriptPanel" type="checkbox" />
-      <label for="showTranscriptPanel">右側に字幕の履歴パネルを表示</label>
-    </div>
-
-    <div class="field row">
-      <input id="autoPause" type="checkbox" />
-      <label for="autoPause">単語クリックで動画を自動一時停止</label>
-    </div>
-
-    <div class="field row">
-      <input id="enabled" type="checkbox" />
-      <label for="enabled">拡張機能を有効にする</label>
-    </div>
-
-    <p class="hint">自動翻訳を OFF にすると、新しい自動翻訳の送信を停止します。拡張機能を OFF にすると、翻訳・解説の新しい送信を停止します。表示への反映や ON に戻した後の再開には、開いている動画タブの再読み込みが必要な場合があります。接続テストは OFF の状態でも使えます。</p>
 
     <div class="actions">
       <button id="test" type="button">接続テスト</button>
