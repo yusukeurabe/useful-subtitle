@@ -47,3 +47,37 @@ describe('options provider', () => {
     expect(field('status').textContent).toContain('APIキー');
   });
 });
+
+describe('options usage list', () => {
+  const states = (selector: string) =>
+    [...document.querySelectorAll(`${selector} .usage-state`)].map(cell => cell.textContent);
+  const selectProvider = async (value: string) => {
+    field('provider').value = value;
+    field('provider').dispatchEvent(new Event('change'));
+    await flush();
+  };
+
+  it('shows API wording for the default provider', async () => {
+    await start();
+    expect(field('usageTitle').textContent).toBe('API を使用する機能（従量課金）');
+    expect(states('[data-uses-ai="true"]')).toEqual(Array(4).fill('API を使用する'));
+    expect(states('[data-uses-ai="false"]')).toEqual(Array(3).fill('使用しない'));
+    expect(field('usageNote').textContent).toContain('同じ内容の再表示では API を使用しません');
+  });
+  it('shows subscription wording for a saved subscription provider', async () => {
+    await saveSettings({ provider: 'claude-subscription' });
+    await start();
+    expect(field('usageTitle').textContent).toBe('サブスク枠を使う機能');
+    expect(states('[data-uses-ai="true"]')).toEqual(Array(4).fill('サブスク枠を使う'));
+    expect(states('[data-uses-ai="false"]')).toEqual(Array(3).fill('使わない'));
+    expect(field('usageNote').textContent).toContain('同じ内容の再表示では枠を使いません');
+  });
+  it('updates the wording as soon as the provider changes', async () => {
+    await start();
+    await selectProvider('claude-subscription');
+    expect(field('usageTitle').textContent).toBe('サブスク枠を使う機能');
+    await selectProvider('anthropic');
+    expect(field('usageTitle').textContent).toBe('API を使用する機能（従量課金）');
+    expect(states('[data-uses-ai="true"]')).toEqual(Array(4).fill('API を使用する'));
+  });
+});

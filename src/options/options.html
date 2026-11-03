@@ -58,6 +58,31 @@
         font-size: 0.85rem;
         margin-top: 4px;
       }
+      .usage-title {
+        font-size: 1rem;
+        margin: 0 0 4px;
+      }
+      .usage {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+      }
+      .usage td {
+        padding: 6px 0;
+        border-top: 1px solid rgba(136, 136, 136, 0.35);
+        vertical-align: top;
+      }
+      .usage-state {
+        padding-left: 16px !important;
+        text-align: right;
+        white-space: nowrap;
+      }
+      [data-uses-ai='true'] .usage-state {
+        font-weight: 700;
+      }
+      [data-uses-ai='false'] .usage-state {
+        color: #888;
+      }
       .actions {
         margin-top: 24px;
         display: flex;
@@ -97,6 +122,43 @@
         <option value="anthropic">Anthropic API（従量課金）</option>
         <option value="claude-subscription">Claude サブスク（この Mac の Claude Code）</option>
       </select>
+    </div>
+
+    <div class="field">
+      <h2 id="usageTitle" class="usage-title"></h2>
+      <table class="usage" aria-labelledby="usageTitle">
+        <tbody>
+          <tr data-uses-ai="true">
+            <td>字幕の日本語訳の併記（ON のとき、字幕が変わるたびに自動）</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="true">
+            <td>字幕の語句をクリックしたときの解説</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="true">
+            <td>履歴パネルの単語・文にカーソルを合わせたときの解説</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="true">
+            <td>接続テスト</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="false">
+            <td>元の字幕の表示、履歴の記録</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="false">
+            <td>大文字の自動整形</td>
+            <td class="usage-state"></td>
+          </tr>
+          <tr data-uses-ai="false">
+            <td>発音記号の取得、音声の再生</td>
+            <td class="usage-state"></td>
+          </tr>
+        </tbody>
+      </table>
+      <p id="usageNote" class="hint"></p>
     </div>
 
     <div id="subscriptionArea" class="field" hidden>

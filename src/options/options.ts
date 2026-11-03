@@ -8,6 +8,29 @@ function el<T extends HTMLElement>(id: string): T {
   return node as T;
 }
 
+const API_USAGE = {
+  title: 'API を使用する機能（従量課金）',
+  used: 'API を使用する',
+  unused: '使用しない',
+  note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では API を使用しません。',
+};
+const SUBSCRIPTION_USAGE = {
+  title: 'サブスク枠を使う機能',
+  used: 'サブスク枠を使う',
+  unused: '使わない',
+  note: '一度翻訳・解説した内容は保存されるため、同じ内容の再表示では枠を使いません。',
+};
+
+function renderUsage(provider: string): void {
+  const usage = provider === 'claude-subscription' ? SUBSCRIPTION_USAGE : API_USAGE;
+  el<HTMLElement>('usageTitle').textContent = usage.title;
+  el<HTMLElement>('usageNote').textContent = usage.note;
+  document.querySelectorAll<HTMLElement>('[data-uses-ai]').forEach((row) => {
+    const state = row.querySelector('.usage-state');
+    if (state) state.textContent = row.dataset.usesAi === 'true' ? usage.used : usage.unused;
+  });
+}
+
 export async function init(): Promise<void> {
   const provider = el<HTMLSelectElement>('provider');
   const apiArea = el<HTMLElement>('apiArea');
@@ -28,6 +51,7 @@ export async function init(): Promise<void> {
   const showProvider = (): void => {
     apiArea.hidden = provider.value === 'claude-subscription';
     subscriptionArea.hidden = provider.value !== 'claude-subscription';
+    renderUsage(provider.value);
   };
   showProvider();
   el<HTMLElement>('extensionId').textContent = chrome.runtime.id;
