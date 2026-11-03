@@ -89,11 +89,6 @@
         margin-left: auto;
         font-size: 0.85rem;
       }
-      [data-usage='unused'] .usage-state,
-      [data-usage='stops'] .usage-state {
-        color: #888;
-        font-weight: 400;
-      }
       .actions {
         margin-top: 24px;
         display: flex;
@@ -141,10 +136,9 @@
       <span class="usage-state"></span>
     </div>
 
-    <div class="field row" data-usage="unused">
+    <div class="field row">
       <input id="truecaseSubtitle" type="checkbox" />
       <label for="truecaseSubtitle">字幕の大文字を読みやすく自動整形（無料・即時）</label>
-      <span class="usage-state"></span>
     </div>
 
     <div class="field row" data-usage="onHover">
@@ -153,19 +147,12 @@
       <span class="usage-state"></span>
     </div>
 
-    <div class="field row" data-usage="unused">
+    <div class="field row">
       <input id="autoPause" type="checkbox" />
       <label for="autoPause">単語クリックで動画を自動一時停止</label>
-      <span class="usage-state"></span>
     </div>
 
-    <div class="field row" data-usage="stops">
-      <input id="enabled" type="checkbox" />
-      <label for="enabled">拡張機能を有効にする</label>
-      <span class="usage-state"></span>
-    </div>
-
-    <p class="hint">自動翻訳を OFF にすると、新しい自動翻訳の送信を停止します。拡張機能を OFF にすると、翻訳・解説の新しい送信を停止します。表示への反映や ON に戻した後の再開には、開いている動画タブの再読み込みが必要な場合があります。接続テストは OFF の状態でも使えます。</p>
+    <p class="hint">自動翻訳を OFF にすると、新しい自動翻訳の送信を停止します。表示への反映や ON に戻した後の再開には、開いている動画タブの再読み込みが必要な場合があります。</p>
 
     <div class="field">
       <h2 class="usage-title"><span aria-hidden="true">⚠️</span><span id="usageTitle"></span></h2>
@@ -177,14 +164,6 @@
           </tr>
           <tr data-usage="used">
             <td>接続テスト</td>
-            <td class="usage-state"></td>
-          </tr>
-          <tr data-usage="unused">
-            <td>元の字幕の表示、履歴の記録</td>
-            <td class="usage-state"></td>
-          </tr>
-          <tr data-usage="unused">
-            <td>発音記号の取得、音声の再生</td>
             <td class="usage-state"></td>
           </tr>
         </tbody>

@@ -121,11 +121,8 @@ describe('boundary + handler + native scheduler', () => {
 
 
 describe('saved feature switches on subsequent requests', () => {
-  it.each([
-    ['anthropic', 'dualSubtitle'], ['claude-subscription', 'dualSubtitle'],
-    ['anthropic', 'enabled'], ['claude-subscription', 'enabled'],
-  ] as const)('%s stops new AI work after saving %s=false and resumes when enabled', async (provider, toggle) => {
-    await saveSettings({ provider, apiKey: 'saved', enabled: true, dualSubtitle: true });
+  it.each(['anthropic', 'claude-subscription'] as const)('%s stops new translations after saving dualSubtitle=false and resumes when enabled', async provider => {
+    await saveSettings({ provider, apiKey: 'saved', dualSubtitle: true });
     const getCached = vi.fn(async () => undefined);
     const h = harness({ getSettings, getCached });
     const initial = h.send('initial'); await flush();
@@ -136,18 +133,14 @@ describe('saved feature switches on subsequent requests', () => {
     getCached.mockClear();
 
     // Empty API key also proves OFF is checked before key validation.
-    await saveSettings({ [toggle]: false, apiKey: '' });
+    await saveSettings({ dualSubtitle: false, apiKey: '' });
     h.boundary.settingsChanged();
     expect(await h.send('after saving OFF')).toMatchObject({ ok: false, code: 'CANCELED' });
-    if (toggle === 'enabled') {
-      expect(await h.boundary.dispatch({ type: 'explainSentence', text: 'new sentence' }, video())).toMatchObject({ code: 'CANCELED' });
-      expect(await h.boundary.dispatch({ type: 'explainSelection', selection: 'new', context: 'new sentence' }, video())).toMatchObject({ code: 'CANCELED' });
-    }
     expect(h.deps.callAi).not.toHaveBeenCalled();
     expect(h.deps.callSubscription).not.toHaveBeenCalled();
     expect(getCached).not.toHaveBeenCalled();
 
-    await saveSettings({ [toggle]: true, apiKey: 'saved' });
+    await saveSettings({ dualSubtitle: true, apiKey: 'saved' });
     h.boundary.settingsChanged();
     const restored = h.send('after saving ON'); await flush();
     if (provider === 'claude-subscription') h.finish('restored');
@@ -156,9 +149,9 @@ describe('saved feature switches on subsequent requests', () => {
     expect(h.deps.callSubscription).toHaveBeenCalledTimes(provider === 'claude-subscription' ? 1 : 0);
   });
 
-  it.each(['anthropic', 'claude-subscription'] as const)('%s still permits explicit ping and dictionary/audio while disabled', async provider => {
+  it.each(['anthropic', 'claude-subscription'] as const)('%s still permits explicit ping and dictionary/audio with automatic translation disabled', async provider => {
     const h = harness({ getSettings });
-    await saveSettings({ provider, apiKey: 'saved', enabled: false, dualSubtitle: false });
+    await saveSettings({ provider, apiKey: 'saved', dualSubtitle: false });
     h.boundary.settingsChanged();
     const ping = h.boundary.dispatch({ type: 'ping' }, { id, url: chrome.runtime.getURL('options.html') });
     await flush();
@@ -172,8 +165,21 @@ describe('saved feature switches on subsequent requests', () => {
 
   it.each(['anthropic', 'claude-subscription'] as const)('%s permits manual explanation with only automatic translation disabled', async provider => {
     const h = harness({ getSettings });
-    await saveSettings({ provider, apiKey: 'saved', enabled: true, dualSubtitle: false });
+    await saveSettings({ provider, apiKey: 'saved', dualSubtitle: false });
     h.boundary.settingsChanged();
+    const explanation = h.boundary.dispatch({ type: 'explainSentence', text: 'a sentence' }, video());
+    await flush();
+    if (provider === 'claude-subscription') h.finish('explanation');
+    expect(await explanation).toMatchObject({ ok: true });
+  });
+
+  it.each(['anthropic', 'claude-subscription'] as const)('%s does not resume automatic translation after updating from enabled=false, but allows manual explanation', async provider => {
+    const h = harness({ getSettings });
+    await chrome.storage.local.set({ provider, apiKey: 'saved', enabled: false, dualSubtitle: true });
+    h.boundary.settingsChanged();
+    expect(await h.send('automatic')).toMatchObject({ ok: false, code: 'CANCELED' });
+    expect(h.deps.callAi).not.toHaveBeenCalled();
+    expect(h.deps.callSubscription).not.toHaveBeenCalled();
     const explanation = h.boundary.dispatch({ type: 'explainSentence', text: 'a sentence' }, video());
     await flush();
     if (provider === 'claude-subscription') h.finish('explanation');

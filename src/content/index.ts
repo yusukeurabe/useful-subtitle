@@ -15,7 +15,6 @@ import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
 
 async function main(): Promise<void> {
   const settings = await getSettings();
-  if (!settings.enabled) return;
   const youtube = isYouTube();
   let generation = 0;
   const notifyContextChanged = (): void => {

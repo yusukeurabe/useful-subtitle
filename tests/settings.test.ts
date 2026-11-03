@@ -15,7 +15,6 @@ describe('settings', () => {
     expect(DEFAULT_SETTINGS.explanationLanguage).toBe('ja');
     expect(DEFAULT_SETTINGS.dualSubtitle).toBe(true);
     expect(DEFAULT_SETTINGS.autoPauseOnClick).toBe(true);
-    expect(DEFAULT_SETTINGS.enabled).toBe(true);
   });
 
   it('persists saved values', async () => {
@@ -36,6 +35,34 @@ describe('settings', () => {
     expect(DEFAULT_SETTINGS.truecaseSubtitle).toBe(true);
     expect(DEFAULT_SETTINGS.subtitleBottomPercent).toBe(12);
     expect(DEFAULT_SETTINGS.showTranscriptPanel).toBe(true);
+  });
+});
+
+
+describe('removed enabled setting migration', () => {
+  it('turns automatic translation off when the extension had been disabled', async () => {
+    await chrome.storage.local.set({ enabled: false, dualSubtitle: true });
+    expect((await getSettings()).dualSubtitle).toBe(false);
+    expect(await chrome.storage.local.get(null)).toEqual({ dualSubtitle: false });
+  });
+  it('keeps automatic translation when the extension had been enabled', async () => {
+    await chrome.storage.local.set({ enabled: true, dualSubtitle: true });
+    expect((await getSettings()).dualSubtitle).toBe(true);
+    expect(await chrome.storage.local.get(null)).toEqual({ dualSubtitle: true });
+  });
+  it('migrates only once, so automatic translation can be turned back on', async () => {
+    await chrome.storage.local.set({ enabled: false, dualSubtitle: true });
+    await getSettings();
+    await saveSettings({ dualSubtitle: true });
+    expect((await getSettings()).dualSubtitle).toBe(true);
+  });
+  it('retries on the next read when saving the migrated value fails', async () => {
+    await chrome.storage.local.set({ enabled: false, dualSubtitle: true });
+    vi.spyOn(chrome.storage.local, 'set').mockRejectedValueOnce(new Error('write failed'));
+    await expect(getSettings()).rejects.toThrow('write failed');
+    expect((await getSettings()).dualSubtitle).toBe(false);
+    expect(await chrome.storage.local.get(null)).toEqual({ dualSubtitle: false });
+    vi.restoreAllMocks();
   });
 });
 

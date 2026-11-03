@@ -10,7 +10,6 @@ export const DEFAULT_SETTINGS: Settings = {
   explanationLanguage: 'ja',
   dualSubtitle: true,
   autoPauseOnClick: true,
-  enabled: true,
   truecaseSubtitle: true,
   subtitleBottomPercent: 12,
   showTranscriptPanel: true,
@@ -26,6 +25,14 @@ export async function getSettings(): Promise<Settings> {
     await chrome.storage.local.set({ model: DEFAULT_MODEL });
     stored.model = DEFAULT_MODEL;
   }
+  // 廃止した enabled=false の利用者は、更新後に自動送信が再開しないよう自動翻訳 OFF へ引き継ぐ。
+  // 書き込みに失敗しても次回やり直せるよう、enabled の削除は最後に行う。
+  const { enabled } = await chrome.storage.local.get('enabled');
+  if (enabled === false) {
+    await chrome.storage.local.set({ dualSubtitle: false });
+    stored.dualSubtitle = false;
+  }
+  if (enabled !== undefined) await chrome.storage.local.remove('enabled');
   return { ...DEFAULT_SETTINGS, ...stored };
 }
 

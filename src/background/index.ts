@@ -88,7 +88,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   return true;
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && ['provider', 'model', 'explanationLanguage', 'apiKey', 'enabled', 'dualSubtitle'].some(key => key in changes)) {
+  if (area === 'local' && ['provider', 'model', 'explanationLanguage', 'apiKey', 'dualSubtitle'].some(key => key in changes)) {
     boundary.settingsChanged();
   }
 });
