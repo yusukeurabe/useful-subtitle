@@ -351,7 +351,10 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   // --- ホバーで単語＋文の意味を 2 段で表示するポップアップ ---
   // 上段＝単語の意味（onExplainWord）、下段＝その単語を含む字幕一文の意味（onExplain）。
-  const DWELL_MS = 500; // 何ms乗せ続けたら出すか（初回のみ。ポップアップ表示中は即時切替）
+  const DWELL_MS = 500; // 何ms乗せ続けたら出すか（初回）
+  // ポップアップ表示中に別単語へ切り替えるまでの待ち。ポップアップへカーソルを運ぶ途中で
+  // 単語を「通過しただけ」で切り替わらないよう、この間その単語に留まったときだけ切り替える。
+  const SWITCH_MS = 300;
   const CLOSE_GRACE_MS = 200; // 離れてから閉じるまでの猶予
   let hoverPopup: HTMLDivElement | null = null;
   let hoverRow: HTMLElement | null = null;
@@ -518,7 +521,11 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (!hoverPopup) {
       hoverPopup = document.createElement('div');
       hoverPopup.className = 'hover-popup';
-      hoverPopup.addEventListener('mouseenter', clearClose);
+      // ポップアップに入れたら、閉じる予約も途中で通過した単語への切替予約も取り消す。
+      hoverPopup.addEventListener('mouseenter', () => {
+        clearClose();
+        clearDwell();
+      });
       hoverPopup.addEventListener('mouseleave', scheduleClose);
       shadow.appendChild(hoverPopup);
     }
@@ -589,7 +596,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   function renderWords(entry: TranscriptEntry, row: HTMLDivElement, en: HTMLDivElement): void {
     en.replaceChildren();
     // 単語ごとに span を起こし、その単語のホバーで意味取得を発火する（Language Reactor 風）。
-    // 単語間移動はポップアップ表示中なら即時で切り替わる（初回のみドウェル待ち）。
+    // 初回は DWELL_MS、ポップアップ表示中の別単語への切替は SWITCH_MS だけ留まったら発火する。
+    // 単語から出たら予約を取り消すので、カーソルが通過しただけの単語では切り替わらない。
     for (const tok of tokenizeLine(entry.english)) {
       if (!tok.isWord) {
         en.appendChild(document.createTextNode(tok.text));
@@ -599,19 +607,16 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       wspan.className = 'word';
       wspan.textContent = tok.text;
       wspan.addEventListener('mouseenter', () => {
+        // 表示中のポップアップは、切替先が決まるまで（または離れるまで）開いたままにする。
         clearClose();
         clearDwell();
-        if (hoverPopup) {
-          // すでに表示中（または猶予中）なら、ドウェルなしで即時切替。
-          openHoverPopup(row, tok.text, entry.english);
-        } else {
-          dwellRow = row;
-          dwellTimer = setTimeout(
-            () => openHoverPopup(row, tok.text, entry.english),
-            DWELL_MS,
-          );
-        }
+        dwellRow = row;
+        dwellTimer = setTimeout(
+          () => openHoverPopup(row, tok.text, entry.english),
+          hoverPopup ? SWITCH_MS : DWELL_MS,
+        );
       });
+      wspan.addEventListener('mouseleave', clearDwell);
       wspan.addEventListener('click', (e) => {
         if (!cb.onWordClick) return;
         // 行へ伝えると seekVideo が再生を再開してしまう。
