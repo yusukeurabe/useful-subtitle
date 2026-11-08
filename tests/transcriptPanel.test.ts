@@ -475,8 +475,8 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
 
     firstSpan.dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500); // first 要求中（未解決）
-    secondSpan.dispatchEvent(new Event('mouseenter')); // 表示中なので即時切替
-    await vi.advanceTimersByTimeAsync(0); // second 解決→描画
+    secondSpan.dispatchEvent(new Event('mouseenter')); // 表示中なので短い待ちで切替
+    await vi.advanceTimersByTimeAsync(300); // second 解決→描画
 
     resolveFirstWord({ ok: true, senses: [{ pos: 'V[I]', gloss: 'FIRST-訳' }], explanation: 'FIRST-解説' });
     await vi.advanceTimersByTimeAsync(0);
@@ -486,7 +486,7 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
     expect(p!.textContent).not.toContain('FIRST-訳');
   });
 
-  it('ポップアップ表示中に別の単語へ移ると、ドウェル待ちなしで即時切替する', async () => {
+  it('ポップアップ表示中に別の単語へ留まると、初回ドウェルより短い待ちで切り替わる', async () => {
     const seen: string[] = [];
     panel = createTranscriptPanel({
       onSeek: () => {},
@@ -504,13 +504,75 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
     expect(popup()).not.toBeNull();
     expect(seen).toEqual(['one']);
 
-    two.dispatchEvent(new Event('mouseenter')); // 即時切替
-    await vi.advanceTimersByTimeAsync(0);
+    two.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(300);
     three.dispatchEvent(new Event('mouseenter'));
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(300);
 
     expect(seen).toEqual(['one', 'two', 'three']);
     expect(popup()!.textContent).toContain('three');
+  });
+
+  it('ポップアップへ向かう途中で単語を通過しただけでは切り替わらない（回帰）', async () => {
+    const seen: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async (w) => {
+        seen.push(w);
+        return { ok: true, senses: [], explanation: `expl:${w}` };
+      },
+      onExplain: async () => ({ ok: true, translation: 't', explanation: '' }),
+    });
+    panel.append({ id: 1, english: 'one two', videoTime: 1 });
+    panel.append({ id: 2, english: 'three four', videoTime: 2 });
+    const [rowA, rowB] = rowsOf();
+    const [one, two] = wordsOf(rowA);
+    const [three] = wordsOf(rowB);
+
+    one.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(seen).toEqual(['one']);
+
+    // カーソルが one → two → (行を出て) three → ポップアップ へ素早く移動する。
+    one.dispatchEvent(new Event('mouseleave'));
+    two.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(60);
+    two.dispatchEvent(new Event('mouseleave'));
+    rowA.dispatchEvent(new Event('mouseleave'));
+    three.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(60);
+    three.dispatchEvent(new Event('mouseleave'));
+    rowB.dispatchEvent(new Event('mouseleave'));
+    popup()!.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(seen).toEqual(['one']);
+    expect(popup()).not.toBeNull();
+    expect(popup()!.textContent).toContain('expl:one');
+  });
+
+  it('別の単語に乗った直後にポップアップへ入ると、その単語への切替は取り消される', async () => {
+    const seen: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async (w) => {
+        seen.push(w);
+        return { ok: true, senses: [], explanation: `expl:${w}` };
+      },
+      onExplain: async () => ({ ok: true, translation: 't', explanation: '' }),
+    });
+    panel.append({ id: 1, english: 'one two', videoTime: 1 });
+    const [one, two] = wordsOf(rowsOf()[0]);
+
+    one.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    two.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(100);
+    popup()!.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(seen).toEqual(['one']);
+    expect(popup()!.textContent).toContain('expl:one');
   });
 
   it('onExplainWord のみ指定なら下段（文セクション）は出ない', async () => {
