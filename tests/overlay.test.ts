@@ -95,3 +95,31 @@ describe('createOverlay — 字幕の頭から再生する▶ボタン', () => {
     expect(seeks).toEqual([0]);
   });
 });
+
+describe('createOverlay — ポップアップの発音ボタン', () => {
+  let overlay: Overlay | null = null;
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  it('発音ボタンは絵文字ではなく SVG アイコンで、押すと選択語と音源で再生を依頼する', () => {
+    const plays: Array<[string, string | null]> = [];
+    overlay = createOverlay(
+      { ...noopCallbacks(), onPlayAudio: (s, url) => plays.push([s, url]) },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    overlay.openPopup(new DOMRect(100, 100, 50, 20), 'staircase');
+    overlay.setPopupWordInfo('ˈster.keɪs', 'https://x/staircase.mp3');
+    const btn = shadow().querySelector<HTMLButtonElement>('.audio-btn')!;
+    expect(btn.querySelector('svg')).not.toBeNull();
+    expect(btn.textContent).toBe('');
+    expect(btn.getAttribute('aria-label')).toBe('発音を再生');
+    btn.click();
+    expect(plays).toEqual([['staircase', 'https://x/staircase.mp3']]);
+  });
+});

@@ -3,6 +3,7 @@ import type { Token } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
 import { CAPTION_TEXT_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
 import { cambridgeUrl, formatIpaForDisplay } from '../shared/dictionary';
+import { createSpeakerButton } from './icons';
 
 export interface OverlayCallbacks {
   /** 単語クリック or フレーズ選択が確定したとき。anchor は対象語のビューポート座標。 */
@@ -98,9 +99,14 @@ const STYLES = `
 .popup .pronounce {
   display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
 }
-.popup .pronounce .audio-btn {
-  padding: 2px 8px; font-size: 14px; line-height: 1;
+.popup .audio-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; flex: none;
+  border: 1px solid #2f3b52; border-radius: 50%; background: transparent;
+  color: #8ab4ff; cursor: pointer; transition: background 0.15s, color 0.15s;
 }
+.popup .audio-btn:hover { background: rgba(86, 156, 255, 0.15); color: #b3cdff; }
+.popup .audio-btn:active { background: rgba(86, 156, 255, 0.28); }
 .popup .ipa {
   color: #b9c4d6; font-size: 13px;
   font-family: "SF Mono", Menlo, Consolas, monospace;
@@ -395,10 +401,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const pronounce = document.createElement('div');
     pronounce.className = 'pronounce';
 
-    const audioBtn = document.createElement('button');
-    audioBtn.className = 'act-btn audio-btn';
-    audioBtn.textContent = '🔊';
-    audioBtn.title = '発音を再生';
+    const audioBtn = createSpeakerButton('audio-btn');
     audioBtn.addEventListener('click', () => callbacks.onPlayAudio(popupSelection, popupAudioUrl));
     pronounce.appendChild(audioBtn);
 

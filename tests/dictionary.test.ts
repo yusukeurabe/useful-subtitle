@@ -89,6 +89,10 @@ describe('extractWordInfo', () => {
     const json = [{ phonetic: '/top/', phonetics: [{ text: '', audio: 'https://x/x-us.mp3' }] }];
     expect(extractWordInfo(json)).toEqual({ ipa: '/top/', audioUrl: 'https://x/x-us.mp3' });
   });
+  it('turns protocol-relative audio URLs into https (otherwise rejected by playAudio)', () => {
+    const json = [{ phonetics: [{ text: '/w/', audio: '//ssl.gstatic.com/dictionary/static/sounds/w.mp3' }] }];
+    expect(extractWordInfo(json).audioUrl).toBe('https://ssl.gstatic.com/dictionary/static/sounds/w.mp3');
+  });
   it('returns ipa with null audio when only text exists', () => {
     const json = [{ phonetics: [{ text: '/only/' }] }];
     expect(extractWordInfo(json)).toEqual({ ipa: '/only/', audioUrl: null });

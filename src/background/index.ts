@@ -2,72 +2,35 @@ import { type HandlerDeps } from './handler';
 import { getCached, setCached } from './cache';
 import { callAnthropic } from './aiClient';
 import { getSettings } from '../shared/settings';
-import { extractWordInfo, extractCambridgeWordInfo, CAMBRIDGE_BASE, type WordInfo } from '../shared/dictionary';
+import { createWordInfoFetcher } from './wordInfo';
+import { createOffscreenAudioPlayer } from './offscreenAudio';
 import { createNativeClient } from './nativeClient';
 import { createRequestBoundary } from './requestBoundary';
 
-const DICT_API = 'https://api.dictionaryapi.dev/api/v2/entries/en/';
-
-/** Cambridge 英英ページから US の IPA と mp3 URL を取得する。未収録/失敗時は {null,null}。 */
-async function tryCambridge(word: string): Promise<WordInfo> {
-  try {
-    const res = await fetch(`${CAMBRIDGE_BASE}/dictionary/english/${encodeURIComponent(word)}`);
-    if (!res.ok) return { ipa: null, audioUrl: null };
-    const html = await res.text();
-    return extractCambridgeWordInfo(html);
-  } catch {
-    return { ipa: null, audioUrl: null };
-  }
-}
-
-/** 無料辞書 API（フォールバック）から IPA と mp3 URL を取得する。失敗時は {null,null}。 */
-async function tryDictionaryApi(word: string): Promise<WordInfo> {
-  try {
-    const res = await fetch(`${DICT_API}${encodeURIComponent(word)}`);
-    if (!res.ok) return { ipa: null, audioUrl: null };
-    const json = (await res.json().catch(() => null)) as unknown;
-    return extractWordInfo(json);
-  } catch {
-    return { ipa: null, audioUrl: null };
-  }
-}
+/** 単語の IPA＋音源 URL（Cambridge 一次・dictionaryapi.dev 予備、結果はメモリに保持）。 */
+const getWordInfo = createWordInfoFetcher((url) => fetch(url));
 
 /**
- * Cambridge を一次、dictionaryapi.dev をフォールバックとして単語の IPA＋音源 URL を返す。
- * Cambridge で IPA が取れたら音源 null でも採用する（部分採用＝音源は TTS フォールバックで埋まる）。
+ * offscreen で音源を再生する。AUDIO_PLAYBACK の offscreen は無音30秒で Chrome に閉じられる
+ * ため、毎回 runtime.getContexts で存在を確かめて無ければ作り直す。
  */
-async function getWordInfo(word: string): Promise<WordInfo> {
-  const cam = await tryCambridge(word);
-  if (cam.ipa) return cam;
-  return tryDictionaryApi(word);
-}
-
-// offscreen ドキュメントは1つだけ生成可。生成を直列化し、既存ならエラーを無視。
-let offscreenReady: Promise<void> | null = null;
-async function ensureOffscreen(): Promise<void> {
-  if (!offscreenReady) {
-    offscreenReady = chrome.offscreen
-      .createDocument({
-        url: 'offscreen.html',
-        reasons: ['AUDIO_PLAYBACK'],
-        justification: '単語の発音音声を再生するため',
-      })
-      .catch((e: unknown) => {
-        // 既に存在していれば成功扱い。それ以外は次回再試行できるよう reset して再throw。
-        if (!String(e).toLowerCase().includes('single offscreen')) {
-          offscreenReady = null;
-          throw e;
-        }
-      });
-  }
-  await offscreenReady;
-}
-
-/** offscreen に音源URLを渡して再生させる。 */
-async function playOffscreenAudio(url: string): Promise<void> {
-  await ensureOffscreen();
-  await chrome.runtime.sendMessage({ target: 'offscreen', url });
-}
+const playOffscreenAudio = createOffscreenAudioPlayer({
+  hasDocument: async () => {
+    // getContexts は Chrome 116+。無い環境では「無い」とみなし、作成時の重複エラーで判定する。
+    if (typeof chrome.runtime.getContexts !== 'function') return false;
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT' as chrome.runtime.ContextType],
+    });
+    return contexts.length > 0;
+  },
+  createDocument: () =>
+    chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['AUDIO_PLAYBACK' as chrome.offscreen.Reason],
+      justification: '単語の発音音声を再生するため',
+    }),
+  sendPlay: (url) => chrome.runtime.sendMessage({ target: 'offscreen', url }),
+});
 
 const native = createNativeClient();
 const deps: HandlerDeps = {

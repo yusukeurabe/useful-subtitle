@@ -66,7 +66,10 @@ export function extractWordInfo(json: unknown): WordInfo {
     audios.find((p) => /-uk\.\w+(\?.*)?$/i.test(p.audio)) ??
     audios[0] ??
     null;
-  const audioUrl = chosen ? chosen.audio : null;
+  // 古い収録語はプロトコル相対（//ssl.gstatic.com/...）で返るため https に揃える。
+  const audioUrl = chosen
+    ? chosen.audio.startsWith('//') ? `https:${chosen.audio}` : chosen.audio
+    : null;
 
   const textOf = (p: RawPhonetic | null): string | null =>
     p && typeof p.text === 'string' && p.text.length > 0 ? p.text : null;
