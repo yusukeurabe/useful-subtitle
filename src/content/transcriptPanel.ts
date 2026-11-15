@@ -1,7 +1,7 @@
 import { tokenizeLine } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
 import { formatIpaForDisplay } from '../shared/dictionary';
-import { createSpeakerButton } from './icons';
+import { createCloseIcon, createSpeakerButton, createTrashIcon } from './icons';
 
 export interface TranscriptEntry {
   /** 行を一意に識別する連番（翻訳の後追い更新に使う）。 */
@@ -133,6 +133,7 @@ const STYLES = `
 }
 .header .actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .header .actions button {
+  display: inline-flex; align-items: center; gap: 4px;
   padding: 5px 8px; border: 1px solid #555; border-radius: 5px;
   background: #292929; color: #eee; cursor: pointer;
   font: inherit; font-size: 12px; font-weight: 500; line-height: 1.2;
@@ -221,16 +222,16 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const closeButton = document.createElement('button');
   closeButton.type = 'button';
   closeButton.className = 'x';
-  closeButton.textContent = 'Close';
+  closeButton.append(createCloseIcon(), document.createTextNode('Close'));
   closeButton.title = 'Close panel';
-  // 履歴の削除とパネルを閉じる操作を文字付きボタンで区別する。
+  // 履歴の削除とパネルを閉じる操作を、アイコン（ゴミ箱／バツ印）＋文字のボタンで区別する。
   const actions = document.createElement('span');
   actions.className = 'actions';
   if (cb.onClearHistory) {
     const clearBtn = document.createElement('button');
     clearBtn.type = 'button';
     clearBtn.className = 'clear';
-    clearBtn.textContent = 'Delete';
+    clearBtn.append(createTrashIcon(), document.createTextNode('Delete'));
     clearBtn.title = 'Delete all subtitle history';
     clearBtn.addEventListener('click', () => cb.onClearHistory?.());
     actions.append(clearBtn);
@@ -251,8 +252,9 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   reopen.textContent = '☰';
   reopen.title = 'Transcript を開く（ドラッグで移動）';
   reopen.setAttribute('aria-label', 'Open transcript');
-  reopen.style.display = 'none';
   shadow.appendChild(reopen);
+  // 動画を開いただけでは自動で開かず、再表示ボタン（☰）を押したときだけパネルを開く。
+  panelHost.style.display = 'none';
 
   const setVisible = (visible: boolean): void => {
     panelHost.style.display = visible ? '' : 'none';

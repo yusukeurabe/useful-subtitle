@@ -815,6 +815,24 @@ describe('createTranscriptPanel — 再表示ボタン（小型・ドラッグ�
   }
   const panelVisible = (): boolean => shadow().querySelector<HTMLElement>('.host')!.style.display !== 'none';
 
+  it('作成直後はパネルを開かず、再表示ボタンだけを出す', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    expect(panelVisible()).toBe(false);
+    const reopen = shadow().querySelector<HTMLButtonElement>('.reopen')!;
+    expect(reopen.style.display).toBe('');
+    reopen.click();
+    expect(panelVisible()).toBe(true);
+  });
+
+  it('Delete と Close ボタンにはアイコン（SVG）と文字が並ぶ', () => {
+    panel = createTranscriptPanel({ onSeek: () => {}, onClearHistory: () => {} });
+    for (const [sel, label] of [['.clear', 'Delete'], ['.x', 'Close']] as const) {
+      const btn = shadow().querySelector<HTMLButtonElement>(sel)!;
+      expect(btn.querySelector('svg')).not.toBeNull();
+      expect(btn.textContent).toBe(label);
+    }
+  });
+
   it('閉じると文字なしのアイコンボタンだけが出る（占有面積を小さくする）', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     const reopen = closePanel();
