@@ -8,6 +8,7 @@ import { createTranscriptPanel, type TranscriptPanel } from './transcriptPanel';
 import { createTranscriptRecorder, createRollingTranscriptRecorder } from './transcriptRecorder';
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
+import { fetchWordInfo } from './word';
 import { findVideo, pauseVideo, seekVideo } from './videoControl';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
@@ -80,6 +81,8 @@ async function main(): Promise<void> {
           const { translation, explanation } = parseSentenceMeaning(res.text);
           return { ok: true, translation, explanation };
         },
+        onLookupWordInfo: fetchWordInfo,
+        onPlayAudio: (word, audioUrl) => void playPronunciation(word, audioUrl),
         onClearHistory: clearHistory,
       })
     : null;

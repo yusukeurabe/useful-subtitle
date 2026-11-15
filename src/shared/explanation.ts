@@ -54,8 +54,15 @@ export function parseExplanation(raw: string): ParsedExplanation {
     if (!m) return;
     const gloss = normalizeGloss(m[2]);
     if (!gloss) return;
-    senses.push({ pos: m[1], gloss });
     consumed.add(i);
+    // LLM が同じ品詞行を繰り返すことがある（then で "Adv.: …" が2行出た）。
+    // 同じ品詞は1行にまとめ、訳語は重複を除いて最大3つに丸める。
+    const same = senses.find((s) => s.pos === m[1]);
+    if (same) {
+      same.gloss = normalizeGloss(`${same.gloss}・${gloss}`.split('・').filter((t, j, a) => a.indexOf(t) === j).join('・'));
+      return;
+    }
+    senses.push({ pos: m[1], gloss });
   });
 
   // 品詞行が 1 つも無いときだけ、フレーズ/旧形式の "訳:" を 1 件として拾う。

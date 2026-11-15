@@ -1,13 +1,15 @@
 import { sendRequest } from '../shared/messages';
+import { waitForAudioUrl } from './word';
 
 /**
  * 🔊 の再生。先読み済み音源URLがあれば offscreen でネイティブ音源を再生。
- * 無い／再生不可なら Web Speech API で読み上げる。
+ * まだ辞書取得中なら完了を待ってから判断する。無い／再生不可なら Web Speech API で読み上げる。
  */
 export async function playPronunciation(
   selection: string,
-  audioUrl: string | null,
+  preloadedUrl: string | null,
 ): Promise<void> {
+  const audioUrl = preloadedUrl ?? (await waitForAudioUrl(selection));
   if (audioUrl) {
     const res = await sendRequest({ type: 'playAudio', url: audioUrl });
     if (res.ok && res.kind === 'audio' && res.played) return;

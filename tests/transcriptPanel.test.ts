@@ -351,6 +351,53 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
     expect(ws).toEqual(['Break', 'a', 'leg', 'friend']);
   });
 
+  it('ホバーポップアップの単語の横に 🔊 と発音記号が出て、🔊 で発音を再生する', async () => {
+    const plays: Array<[string, string | null]> = [];
+    const lookups: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '' }),
+      onLookupWordInfo: async (w) => {
+        lookups.push(w);
+        return { ipa: 'breɪk', audioUrl: 'https://x/break.mp3' };
+      },
+      onPlayAudio: (w, url) => plays.push([w, url]),
+    });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(lookups).toEqual(['Break']);
+    const p = popup()!;
+    expect(p.querySelector('.hp-word-head')?.textContent).toBe('Break');
+    expect(p.querySelector('.hp-ipa')?.textContent).toBe('/breɪk/');
+    const btn = p.querySelector<HTMLButtonElement>('.hp-audio-btn');
+    expect(btn).not.toBeNull();
+    // 絵文字ではなく SVG アイコン。読み上げ用のラベルを持つ。
+    expect(btn!.querySelector('svg')).not.toBeNull();
+    expect(btn!.textContent).toBe('');
+    expect(btn!.getAttribute('aria-label')).toBe('発音を再生');
+    btn!.click();
+    expect(plays).toEqual([['Break', 'https://x/break.mp3']]);
+  });
+
+  it('発音情報の取得前でも 🔊 は出ていて、押すと音源 null で再生を依頼する', async () => {
+    const plays: Array<[string, string | null]> = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '' }),
+      onLookupWordInfo: () => new Promise(() => {}),
+      onPlayAudio: (w, url) => plays.push([w, url]),
+    });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
+    wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(popup()!.querySelector('.hp-ipa')).toBeNull();
+    popup()!.querySelector<HTMLButtonElement>('.hp-audio-btn')!.click();
+    expect(plays).toEqual([['Break', null]]);
+  });
+
   it('単語にホバーするとドウェル後に onExplainWord と onExplain が両方呼ばれる', async () => {
     const wordCalls: Array<[string, string]> = [];
     const sentCalls: string[] = [];

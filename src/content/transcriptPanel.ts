@@ -1,5 +1,7 @@
 import { tokenizeLine } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
+import { formatIpaForDisplay } from '../shared/dictionary';
+import { createSpeakerButton } from './icons';
 
 export interface TranscriptEntry {
   /** 行を一意に識別する連番（翻訳の後追い更新に使う）。 */
@@ -15,6 +17,12 @@ export type TranscriptMeaning =
   | { ok: true; translation: string; explanation: string }
   | { ok: false; error: string };
 
+/** ホバーで取得する単語の発音情報（IPA＋音源URL。どちらも無ければ null）。 */
+export interface TranscriptWordInfo {
+  ipa: string | null;
+  audioUrl: string | null;
+}
+
 /** ホバーで取得する単語の意味（成功＝品詞別訳＋解説／失敗＝メッセージ）。 */
 export type TranscriptWordMeaning =
   | { ok: true; senses: WordSense[]; explanation: string }
@@ -29,6 +37,10 @@ export interface TranscriptPanelCallbacks {
   onExplainWord?: (word: string, sentence: string) => Promise<TranscriptWordMeaning>;
   /** 単語にホバーしたとき、その単語を含む字幕一文の意味（和訳＋解説）を取得する。ポップアップ下段に出す。 */
   onExplain?: (sentence: string) => Promise<TranscriptMeaning>;
+  /** 単語にホバーしたとき、その単語の発音情報（IPA＋音源URL）を取得する。単語の横に IPA を出す。 */
+  onLookupWordInfo?: (word: string) => Promise<TranscriptWordInfo>;
+  /** 指定時は単語の横に 🔊 を出し、押すと発音を再生する。audioUrl は取得済みの音源（未取得なら null）。 */
+  onPlayAudio?: (word: string, audioUrl: string | null) => void;
   /** ヘッダーの消去ボタンクリックで履歴を全消去する（未指定ならボタンを出さない）。 */
   onClearHistory?: () => void;
 }
@@ -158,7 +170,17 @@ const STYLES = `
 }
 .hover-popup .hp-section { display: flex; flex-direction: column; }
 .hover-popup .hp-section + .hp-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid #3a3a3a; }
-.hover-popup .hp-word-head { font-size: 15px; font-weight: 700; color: #8ab4ff; margin-bottom: 4px; }
+.hover-popup .hp-word-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.hover-popup .hp-word-head { font-size: 15px; font-weight: 700; color: #8ab4ff; }
+.hover-popup .hp-audio-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; flex: none;
+  border: 1px solid #2f3b52; border-radius: 50%; background: transparent;
+  color: #8ab4ff; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.hover-popup .hp-audio-btn:hover { background: rgba(86, 156, 255, 0.15); color: #b3cdff; }
+.hover-popup .hp-audio-btn:active { background: rgba(86, 156, 255, 0.28); }
+.hover-popup .hp-ipa { color: #b9c4d6; font-size: 13px; font-family: "SF Mono", Menlo, Consolas, monospace; }
 .hover-popup .hp-label { font-size: 11px; color: #8ab4ff; font-weight: 700; margin-bottom: 2px; }
 .hover-popup .hp-senses {
   display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px;
@@ -486,6 +508,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     word: string,
     wordRes: TranscriptWordMeaning | null,
     sentRes: TranscriptMeaning | null,
+    info: TranscriptWordInfo | null,
   ): void => {
     if (!hoverPopup) return;
     hoverPopup.replaceChildren();
@@ -493,10 +516,30 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (cb.onExplainWord) {
       const sec = document.createElement('div');
       sec.className = 'hp-section';
+      // 単語・🔊・IPA を 1 行に並べる（🔊 は常時、IPA は取得後のみ）。
+      const line = document.createElement('div');
+      line.className = 'hp-word-line';
       const head = document.createElement('div');
       head.className = 'hp-word-head';
       head.textContent = word;
-      sec.appendChild(head);
+      line.appendChild(head);
+      if (cb.onPlayAudio) {
+        const play = cb.onPlayAudio;
+        const btn = createSpeakerButton('hp-audio-btn');
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          play(word, info?.audioUrl ?? null);
+        });
+        line.appendChild(btn);
+      }
+      const ipa = info?.ipa ? formatIpaForDisplay(info.ipa) : '';
+      if (ipa) {
+        const ipaEl = document.createElement('span');
+        ipaEl.className = 'hp-ipa';
+        ipaEl.textContent = ipa;
+        line.appendChild(ipaEl);
+      }
+      sec.appendChild(line);
       renderWordBody(sec, wordRes);
       hoverPopup.appendChild(sec);
     }
@@ -532,23 +575,36 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
     let wordRes: TranscriptWordMeaning | null = null;
     let sentRes: TranscriptMeaning | null = null;
-    renderHoverPopup(word, wordRes, sentRes);
-    positionHoverPopup(row);
+    let info: TranscriptWordInfo | null = null;
+    const rerender = (): void => {
+      renderHoverPopup(word, wordRes, sentRes, info);
+      positionHoverPopup(row);
+    };
+    rerender();
+
+    if (cb.onLookupWordInfo) {
+      void cb.onLookupWordInfo(word).then(
+        (res) => {
+          if (seq !== hoverSeq || !hoverPopup) return;
+          info = res;
+          rerender();
+        },
+        () => {},
+      );
+    }
 
     if (cb.onExplainWord) {
       void cb.onExplainWord(word, sentence).then((res) => {
         if (seq !== hoverSeq || !hoverPopup) return; // 別単語へ移った／閉じた
         wordRes = res;
-        renderHoverPopup(word, wordRes, sentRes);
-        positionHoverPopup(row);
+        rerender();
       });
     }
     if (cb.onExplain) {
       void cb.onExplain(sentence).then((res) => {
         if (seq !== hoverSeq || !hoverPopup) return;
         sentRes = res;
-        renderHoverPopup(word, wordRes, sentRes);
-        positionHoverPopup(row);
+        rerender();
       });
     }
   };

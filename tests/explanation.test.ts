@@ -66,6 +66,19 @@ describe('parseExplanation', () => {
     expect(r.explanation).toBe('x');
   });
 
+  it('drops an exact duplicate POS line the LLM repeated', () => {
+    const r = parseExplanation('Adv.: その時・それから・そして\nAdv.: その時・それから・そして\n説明: x');
+    expect(r.senses).toEqual([{ pos: 'Adv.', gloss: 'その時・それから・そして' }]);
+  });
+
+  it('merges repeated POS lines into one, keeping unique glosses up to 3', () => {
+    const r = parseExplanation('Adv.: その時・それから\nAdj.: 当時の\nAdv.: それから・次に・さらに\n説明: x');
+    expect(r.senses).toEqual([
+      { pos: 'Adv.', gloss: 'その時・それから・次に' },
+      { pos: 'Adj.', gloss: '当時の' },
+    ]);
+  });
+
   it('returns empty for blank input', () => {
     const r = parseExplanation('   ');
     expect(r.senses).toEqual([]);
