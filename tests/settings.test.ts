@@ -36,6 +36,10 @@ describe('settings', () => {
     expect(DEFAULT_SETTINGS.subtitleBottomPercent).toBe(12);
     expect(DEFAULT_SETTINGS.showTranscriptPanel).toBe(true);
   });
+
+  it('defaults to pausing while the cursor is over the subtitle', () => {
+    expect(DEFAULT_SETTINGS.pauseOnSubtitleHover).toBe(true);
+  });
 });
 
 

@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   explanationLanguage: 'ja',
   dualSubtitle: true,
   autoPauseOnClick: true,
+  pauseOnSubtitleHover: true,
   truecaseSubtitle: true,
   subtitleBottomPercent: 12,
   showTranscriptPanel: true,

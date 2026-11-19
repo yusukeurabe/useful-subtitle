@@ -82,32 +82,38 @@ function findPlayPauseButton(): HTMLElement | null {
 }
 
 /**
+ * 停止中の video を再生し直す。
+ *
+ * Prime は一時停止中の生の <video>.play() を握り潰して停止のままにすることがある。
+ * そこで play() のあと少し待ってもまだ停止中なら、Prime 自身の再生ボタンを押す
+ * （状態機械ごと動かすので握り潰されない）。YouTube は play() だけで再開できる。
+ * 戻り値は「少し待ってからボタンを押す」処理を取り消す関数（直後に止め直す場合用）。
+ */
+export function resumeVideo(v: HTMLVideoElement): () => void {
+  void v.play().catch(() => undefined);
+  const timer = setTimeout(() => {
+    if (!v.paused) return; // 既に再生できている → 何もしない
+    if (!isYouTube() && v.isConnected && findVideo() === v) findPlayPauseButton()?.click();
+  }, 200);
+  return () => clearTimeout(timer);
+}
+
+/**
  * 指定秒へシークし、その地点から再生を再開する（負値は 0 に丸める）。
  *
- * Prime は一時停止中だと (a) プログラムからの currentTime 変更で画面を描き直さず、
- * さらに (b) 生の <video>.play() を直後に握り潰して停止のままにすることがある。
- * 履歴行をクリックしても「戻らない／戻るが再生されない」ように見えるため、多段で
- * 確実に再開させる：
- *   1. currentTime をセット
- *   2. すぐ play()（バッファ済みなら即フレーム更新＋再生）
- *   3. シーク完了(seeked)時にもう一度 play()（未バッファ地点で 2 が落ちた場合の保険）
- *   4. 少し待っても停止中なら Prime 自身の再生ボタンを押す（状態機械ごと動かすので
- *      握り潰されない）
- * 履歴行クリックはユーザー操作内なので play()/click は許可される。再生中に呼ばれた
- * 場合は 4 を skip する（v.paused が false）ので、再生中クリックを誤って停止しない。
+ * Prime は一時停止中だとプログラムからの currentTime 変更で画面を描き直さないため、
+ * シーク後に resumeVideo で再生まで行う（履歴行をクリックしても「戻らない」ように
+ * 見えるのを防ぐ）。未バッファ地点で直後の play() が落ちた場合に備え、シーク完了
+ * (seeked) 時にもう一度 play() する。再生中に呼ばれた場合は resumeVideo の
+ * ボタン押下が skip される（v.paused が false）ので、再生中クリックを誤って停止しない。
  * 同じ要素を一貫して扱い、findVideo の二度引きによる取り違えも防ぐ。
  */
 export function seekVideo(seconds: number): void {
   const v = findVideo();
   if (!v) return;
   v.currentTime = Math.max(0, seconds);
-  const resume = (): void => {
+  resumeVideo(v);
+  v.addEventListener('seeked', () => {
     if (findVideo() === v) void v.play().catch(() => undefined);
-  };
-  resume();
-  v.addEventListener('seeked', resume, { once: true });
-  setTimeout(() => {
-    if (!v.paused) return; // 既に再生できている（再生中クリックを含む）→ 何もしない
-    if (!isYouTube() && v.isConnected && findVideo() === v) findPlayPauseButton()?.click();
-  }, 200);
+  }, { once: true });
 }
