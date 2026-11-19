@@ -123,3 +123,100 @@ describe('createOverlay — ポップアップの発音ボタン', () => {
     expect(plays).toEqual([['staircase', 'https://x/staircase.mp3']]);
   });
 });
+
+describe('createOverlay — 字幕ホバーの通知', () => {
+  let overlay: Overlay | null = null;
+  let starts: number;
+  let ends: Array<{ resume: boolean }>;
+
+  const subtitleEl = (): HTMLDivElement => shadow().querySelector<HTMLDivElement>('.subtitle')!;
+  const enter = (): void => void subtitleEl().dispatchEvent(new MouseEvent('mouseenter'));
+  const leave = (): void => void subtitleEl().dispatchEvent(new MouseEvent('mouseleave'));
+  const open = (): void => void overlay!.openPopup(new DOMRect(0, 0, 10, 10), 'hello');
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    starts = 0;
+    ends = [];
+    overlay = createOverlay(
+      {
+        ...noopCallbacks(),
+        onHoverStart: () => void starts++,
+        onHoverEnd: (o) => void ends.push(o),
+      },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    overlay.renderLine('Hello there.', tokenizeLine('Hello there.'), 1);
+  });
+
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  it('字幕枠に入ると onHoverStart、出ると onHoverEnd({resume:true})', () => {
+    enter();
+    expect(starts).toBe(1);
+    leave();
+    expect(ends).toEqual([{ resume: true }]);
+  });
+
+  it('ポップアップが開いている間は字幕枠から出ても onHoverEnd を呼ばない', () => {
+    enter();
+    open();
+    leave();
+    expect(ends).toEqual([]);
+  });
+
+  it('枠外で×を押してポップアップを閉じると onHoverEnd({resume:true})', () => {
+    enter();
+    open();
+    leave();
+    shadow().querySelector<HTMLDivElement>('.popup .close')!.click();
+    expect(ends).toEqual([{ resume: true }]);
+  });
+
+  it('枠外で Esc でポップアップを閉じると onHoverEnd({resume:true})', () => {
+    enter();
+    open();
+    leave();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(ends).toEqual([{ resume: true }]);
+  });
+
+  it('枠内でポップアップを閉じたら通知せず、その後出たときに通知する', () => {
+    enter();
+    open();
+    shadow().querySelector<HTMLDivElement>('.popup .close')!.click();
+    expect(ends).toEqual([]);
+    leave();
+    expect(ends).toEqual([{ resume: true }]);
+  });
+
+  it('ポップアップの外側クリックで閉じると onHoverEnd({resume:false})', () => {
+    enter();
+    open();
+    leave();
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(ends).toEqual([{ resume: false }]);
+  });
+
+  it('clearLine では再開を通知しない（ポップアップ無し）', () => {
+    enter();
+    overlay!.clearLine();
+    expect(ends).toEqual([]);
+  });
+
+  it('clearLine でポップアップが閉じても resume:false にとどめる', () => {
+    enter();
+    open();
+    overlay!.clearLine();
+    expect(ends).toEqual([{ resume: false }]);
+  });
+
+  it('ポップアップが無ければ hidePopup しても通知しない', () => {
+    overlay!.hidePopup();
+    expect(ends).toEqual([]);
+  });
+});

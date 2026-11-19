@@ -12,6 +12,13 @@ export interface OverlayCallbacks {
   onPlayAudio: (selection: string, audioUrl: string | null) => void;
   /** 字幕先頭の▶が押されたとき。引数はその字幕が現れた瞬間の動画位置（秒）。 */
   onSeek: (videoTime: number) => void;
+  /** 字幕枠にカーソルが入ったとき（字幕ホバーで一時停止用）。 */
+  onHoverStart?: () => void;
+  /**
+   * 字幕枠とポップアップのホバーが終わったとき。
+   * resume=false はポップアップ外側のクリック等で閉じた場合（再開はユーザーに委ねる）。
+   */
+  onHoverEnd?: (opts: { resume: boolean }) => void;
 }
 
 export interface OverlayOptions {
@@ -229,6 +236,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let dragStart = -1;
   let dragEnd = -1;
   let dragging = false;
+  // 字幕枠の中にカーソルがあるか（字幕ホバーで一時停止用）。
+  let inSubtitle = false;
 
   const clearHighlight = (): void => {
     for (const w of wordRefs) w.el.classList.remove('selected');
@@ -274,7 +283,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   const onDocMouseDown = (e: MouseEvent): void => {
     // シャドウ内（単語/ポップアップ）クリックは host にリターゲットされる。それ以外なら閉じる。
-    if (popup && e.target !== host) hidePopup();
+    // 外側クリックで閉じた場合は再生の再開をユーザーに委ねる（Prime は動画クリックで
+    // 再生/停止が切り替わるので、こちらでも再開すると二重に切り替わる）。
+    if (popup && e.target !== host) hidePopup(false);
   };
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') hidePopup();
@@ -319,11 +330,14 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   function clearLine(): void {
     subtitle.hidden = true;
+    // 隠した字幕の上にはカーソルが居られない。ただし再開はしない
+    // （停止中に字幕が消えた場合に再生と停止を繰り返さないため）。
+    inSubtitle = false;
     original.replaceChildren();
     wordRefs = [];
     currentLineVideoTime = 0;
     setTranslation({ kind: 'none' });
-    hidePopup();
+    hidePopup(false);
   }
 
   function setTranslation(state: TranslationState): void {
@@ -380,7 +394,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const close = document.createElement('div');
     close.className = 'close';
     close.textContent = '×';
-    close.addEventListener('click', hidePopup);
+    close.addEventListener('click', () => hidePopup());
     p.appendChild(close);
 
     const sel = document.createElement('div');
@@ -482,8 +496,13 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
-  function hidePopup(): void {
+  /**
+   * ポップアップを閉じる。実際に閉じた場合、カーソルが字幕枠の外ならホバー終了を通知する
+   * （ポップアップが開いている間はホバー継続とみなしているため）。
+   */
+  function hidePopup(resume = true): void {
     popupGeneration++;
+    const wasOpen = popup !== null;
     if (popup) {
       popup.remove();
       popup = null;
@@ -494,20 +513,32 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupAnchor = null;
     popupAudioUrl = null;
     clearHighlight();
+    if (wasOpen && !inSubtitle) callbacks.onHoverEnd?.({ resume });
   }
+
+  // --- 字幕ホバー（一時停止用）---
+  // ポップアップは字幕枠の外に出るので、開いている間はホバー継続とみなす。
+  subtitle.addEventListener('mouseenter', () => {
+    inSubtitle = true;
+    callbacks.onHoverStart?.();
+  });
+  subtitle.addEventListener('mouseleave', () => {
+    inSubtitle = false;
+    if (!popup) callbacks.onHoverEnd?.({ resume: true });
+  });
 
   // --- マウント & 全画面追従 ---
   const attach = (): void => {
     const target = youtube ? youtubePlayer() : document.fullscreenElement ?? document.body;
     if (!target) {
-      hidePopup();
+      hidePopup(false);
       host.remove();
       hideStyle.remove();
       return;
     }
     if (host.parentElement !== target) {
       target.appendChild(host);
-      hidePopup();
+      hidePopup(false);
     }
     if (!hideStyle.isConnected) document.head.appendChild(hideStyle);
   };
@@ -522,7 +553,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   attach();
 
   function destroy(): void {
-    hidePopup();
+    hidePopup(false);
     document.removeEventListener('mouseup', onMouseUp, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
@@ -541,7 +572,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     setPopupMeaning,
     setPopupError,
     setPopupWordInfo,
-    hidePopup,
+    hidePopup: () => hidePopup(),
     syncMount: attach,
     destroy,
   };
