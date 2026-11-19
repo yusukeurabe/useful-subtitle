@@ -215,6 +215,14 @@ describe('createOverlay — 字幕ホバーの通知', () => {
     expect(ends).toEqual([{ resume: false }]);
   });
 
+  it('次の字幕描画でポップアップが閉じても resume:false にとどめる', () => {
+    enter();
+    open();
+    leave();
+    overlay!.renderLine('Next line.', tokenizeLine('Next line.'), 2);
+    expect(ends).toEqual([{ resume: false }]);
+  });
+
   it('ポップアップが無ければ hidePopup しても通知しない', () => {
     overlay!.hidePopup();
     expect(ends).toEqual([]);

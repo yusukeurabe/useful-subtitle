@@ -295,7 +295,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     subtitle.hidden = false;
     currentSentence = sentence;
     currentLineVideoTime = videoTime;
-    hidePopup();
+    // 次の字幕で閉じても再開はしない（ホバー停止中に字幕が描き直された場合に
+    // 勝手に再生が始まらないようにするため）。
+    hidePopup(false);
     original.replaceChildren();
     wordRefs = [];
 
