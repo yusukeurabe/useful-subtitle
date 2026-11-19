@@ -28,6 +28,13 @@ class AsyncEventFakeVideo extends FakeVideo {
   }
 }
 
+/** Prime のように生の play() を握り潰し、停止のままにする偽 video。 */
+class SwallowPlayFakeVideo extends FakeVideo {
+  play(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 function setup(video: FakeVideo | null) {
   const cancel = vi.fn();
   const resume = vi.fn((_v: HTMLVideoElement) => cancel);
@@ -133,5 +140,36 @@ describe('createHoverPause', () => {
     await new Promise((r) => setTimeout(r, 0)); // 遅れた play イベントを届ける
     hp.end({ resume: true });
     expect(resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('Prime が再開の play() を握り潰した直後に入り直しても、外したときに再開を依頼する', () => {
+    const v = new SwallowPlayFakeVideo(true);
+    const { hp, resume, cancel } = setup(v);
+    resume.mockImplementation((video: HTMLVideoElement) => {
+      void video.play(); // 握り潰されて paused のまま
+      return cancel;
+    });
+    hp.start();
+    hp.end({ resume: true });
+    expect(v.paused).toBe(true);
+    hp.start(); // 保留中のボタン押下より前に入り直す
+    hp.end({ resume: true });
+    expect(resume).toHaveBeenCalledTimes(2);
+  });
+
+  it('再開が成功した後にユーザーが止めた video は、入り直しても記録し直さない', () => {
+    const v = new FakeVideo(true);
+    const { hp, resume, cancel } = setup(v);
+    resume.mockImplementation((video: HTMLVideoElement) => {
+      void video.play(); // 再生に成功し、play イベントも同期で届く
+      return cancel;
+    });
+    hp.start();
+    hp.end({ resume: true });
+    v.pause(); // ユーザーが手動で止める
+    hp.start();
+    hp.end({ resume: true });
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(v.paused).toBe(true);
   });
 });

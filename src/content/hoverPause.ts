@@ -26,6 +26,12 @@ export function createHoverPause(deps: HoverPauseDeps): HoverPause {
   // ホバーで止めた video。ユーザーが自分で再生したら（play イベント）忘れる。
   let pausedVideo: HTMLVideoElement | null = null;
   let cancelResume: (() => void) | null = null;
+  // end で再開を依頼したが、まだ再生が始まったと確認できていない video。
+  // Prime は生の play() を握り潰すことがあり、その場合は 200ms 後のボタン押下
+  // （やその後に Prime が実際に再生を始めるまで）の間も停止したままになる。
+  // この間に入り直すと start が「もともと停止中」と誤認して記録せず、外しても
+  // 再開されず止まったままになるので、この video を覚えておいて記録し直す。
+  let resumingVideo: HTMLVideoElement | null = null;
 
   const forget = (): void => {
     pausedVideo?.removeEventListener('play', onPlay);
@@ -40,12 +46,33 @@ export function createHoverPause(deps: HoverPauseDeps): HoverPause {
     if (pausedVideo && !pausedVideo.paused) forget();
   };
 
+  const clearResuming = (): void => {
+    resumingVideo?.removeEventListener('play', onResumePlay);
+    resumingVideo = null;
+  };
+
+  // 再開が本当に成功した（play が届いた時点で再生中）ら覚えるのをやめる。
+  // こうしておけば、その後ユーザーが自分で止めた video を入り直しで
+  // 「ホバーで止めた」と誤って記録し直すことはない。
+  const onResumePlay = (): void => {
+    if (resumingVideo && !resumingVideo.paused) clearResuming();
+  };
+
   return {
     start() {
       // 外した直後にまた入った場合、保留中の再開（Prime ボタン押下）を止める。
       cancelResume?.();
       cancelResume = null;
+      const resuming = resumingVideo;
+      clearResuming();
       if (pausedVideo) return;
+      // 再開を依頼したのにまだ停止中（Prime が握り潰した等）なら、それはこの部品が
+      // 止めたままの video。止め直さず（既に停止中）記録だけ戻し、外したら再開する。
+      if (resuming && resuming.paused && resuming.isConnected) {
+        pausedVideo = resuming;
+        resuming.addEventListener('play', onPlay);
+        return;
+      }
       const v = deps.findVideo();
       if (!v || v.paused) return; // もともと停止中なら触らない
       v.pause();
@@ -56,7 +83,13 @@ export function createHoverPause(deps: HoverPauseDeps): HoverPause {
       const v = pausedVideo;
       if (!v) return;
       forget(); // 自分の再開で play イベントが来る前に外しておく
-      if (resume && v.paused && v.isConnected) cancelResume = deps.resume(v);
+      if (resume && v.paused && v.isConnected) {
+        // resume が同期で play を発火しても取りこぼさないよう、呼ぶ前に見張りを付ける。
+        clearResuming();
+        resumingVideo = v;
+        v.addEventListener('play', onResumePlay);
+        cancelResume = deps.resume(v);
+      }
     },
   };
 }
