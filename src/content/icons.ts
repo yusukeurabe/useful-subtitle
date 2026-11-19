@@ -5,6 +5,31 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
  * 絵文字（🔊）は OS ごとに見た目が変わり UI から浮くため、アイコンで統一する。
  */
 export function createSpeakerIcon(size = 16): SVGSVGElement {
+  return createLineIcon(size, [
+    'M4 9.5h3.5L12 5.5v13l-4.5-4H4z', // スピーカー本体
+    'M15.5 9a4.5 4.5 0 0 1 0 6', // 内側の音波
+    'M18.5 6a8.5 8.5 0 0 1 0 12', // 外側の音波
+  ]);
+}
+
+/** 履歴の消去ボタン用のゴミ箱アイコン（線画 SVG）。 */
+export function createTrashIcon(size = 14): SVGSVGElement {
+  return createLineIcon(size, [
+    'M4 7h16', // ふたの線
+    'M9 7V4.5h6V7', // 取っ手
+    'M6 7l1 13h10l1-13', // 本体
+    'M10 11v5', // 縦線（左）
+    'M14 11v5', // 縦線（右）
+  ]);
+}
+
+/** パネルを閉じるボタン用のバツ印アイコン（線画 SVG）。 */
+export function createCloseIcon(size = 14): SVGSVGElement {
+  return createLineIcon(size, ['M6 6l12 12', 'M18 6L6 18']);
+}
+
+/** 24x24 の線画アイコンを作る共通処理。色は currentColor に従う。 */
+function createLineIcon(size: number, paths: string[]): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', String(size));
@@ -15,11 +40,7 @@ export function createSpeakerIcon(size = 16): SVGSVGElement {
   svg.setAttribute('stroke-linecap', 'round');
   svg.setAttribute('stroke-linejoin', 'round');
   svg.setAttribute('aria-hidden', 'true');
-  for (const d of [
-    'M4 9.5h3.5L12 5.5v13l-4.5-4H4z', // スピーカー本体
-    'M15.5 9a4.5 4.5 0 0 1 0 6', // 内側の音波
-    'M18.5 6a8.5 8.5 0 0 1 0 12', // 外側の音波
-  ]) {
+  for (const d of paths) {
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('d', d);
     svg.appendChild(path);
