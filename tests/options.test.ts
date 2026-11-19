@@ -46,6 +46,15 @@ describe('options provider', () => {
     expect(sendRequest).not.toHaveBeenCalled();
     expect(field('status').textContent).toContain('APIキー');
   });
+  it('loads and saves the subtitle hover pause switch', async () => {
+    await saveSettings({ pauseOnSubtitleHover: false });
+    await start();
+    expect(field('pauseOnHover').checked).toBe(false);
+    field('pauseOnHover').checked = true;
+    field('pauseOnHover').dispatchEvent(new Event('change'));
+    await flush();
+    expect((await getSettings()).pauseOnSubtitleHover).toBe(true);
+  });
 });
 
 describe('options usage list', () => {
@@ -106,7 +115,7 @@ describe('options usage list', () => {
   it.each(['anthropic', 'claude-subscription'])('shows no usage label on switches that do not consume the quota (%s)', async provider => {
     await start();
     await selectProvider(provider);
-    for (const id of ['truecaseSubtitle', 'autoPause']) {
+    for (const id of ['truecaseSubtitle', 'autoPause', 'pauseOnHover']) {
       expect(field(id).closest('.row')?.querySelector('.usage-state')).toBeNull();
     }
     expect(document.body.textContent).not.toMatch(/使わない|使用しない/);
