@@ -53,7 +53,7 @@ export function createHoverPause(deps: {
 - `OverlayCallbacks` に任意の `onHoverStart?: () => void` と `onHoverEnd?: (opts: { resume: boolean }) => void` を追加。
 - `.subtitle` の `mouseenter` で `inSubtitle = true` にして `onHoverStart` を呼ぶ。`mouseleave` では `inSubtitle = false` にし、ポップアップが無ければ `onHoverEnd({resume: true})` を呼ぶ。
 - `hidePopup` で、実際にポップアップを閉じた場合は、`inSubtitle` でなければ `onHoverEnd` を呼ぶ。外側クリック（`onDocMouseDown`）経由のときは `resume: false`、それ以外は `resume: true`。
-- `clearLine` では `inSubtitle = false` にするだけで、コールバックは呼ばない。
+- `clearLine` では `inSubtitle = false` にし、再開を伴うコールバックは呼ばない（ポップアップが開いていれば `resume: false` で閉じる）。全画面の付け替え（`attach`）と `destroy` で閉じる場合も `resume: false`。
 
 ### `src/content/index.ts`
 
