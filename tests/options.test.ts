@@ -126,6 +126,8 @@ describe('options usage list', () => {
       Boolean(field(a).compareDocumentPosition(field(b)) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows('provider', 'dualSubtitle')).toBe(true);
     expect(follows('autoPause', 'usageTitle')).toBe(true);
+    expect(follows('autoPause', 'pauseOnHover')).toBe(true);
+    expect(follows('pauseOnHover', 'usageTitle')).toBe(true);
   });
   it('marks the usage heading with a warning sign', async () => {
     await start();
