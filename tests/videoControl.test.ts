@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { pickBestVideo, seekVideo, type VideoLike } from '../src/content/videoControl';
+import { pickBestVideo, resumeVideo, seekVideo, type VideoLike } from '../src/content/videoControl';
 
 /** 既定は「停止中・未再生・未描画」のダミー。必要な項目だけ上書きする。 */
 const v = (o: Partial<VideoLike>): VideoLike => ({
@@ -112,5 +112,59 @@ describe('seekVideo — シークしてその地点から再生再開', () => {
     document.body.replaceChildren();
     expect(() => seekVideo(10)).not.toThrow();
     expect(playSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('resumeVideo — 停止中の video を再生し直す', () => {
+  let video: HTMLVideoElement;
+  let playSpy: ReturnType<typeof vi.fn>;
+  let paused: boolean;
+  let clickSpy: ReturnType<typeof vi.fn<() => void>>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    paused = true;
+    playSpy = vi.fn(() => Promise.resolve());
+    video = document.createElement('video');
+    Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+    video.play = playSpy as unknown as HTMLVideoElement['play'];
+    document.body.appendChild(video);
+    const btn = document.createElement('button');
+    btn.className = 'atvwebplayersdk-playpause-button';
+    clickSpy = vi.fn();
+    btn.addEventListener('click', clickSpy);
+    document.body.appendChild(btn);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  it('すぐに play() を呼ぶ', () => {
+    resumeVideo(video);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('200ms 後も停止中なら Prime の再生ボタンを押す', () => {
+    resumeVideo(video);
+    expect(clickSpy).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('再生できていればボタンは押さない', () => {
+    resumeVideo(video);
+    paused = false;
+    vi.advanceTimersByTime(200);
+    expect(clickSpy).not.toHaveBeenCalled();
+  });
+
+  it('戻り値で取り消すとボタンは押さない', () => {
+    const cancel = resumeVideo(video);
+    cancel();
+    vi.advanceTimersByTime(200);
+    expect(clickSpy).not.toHaveBeenCalled();
   });
 });
