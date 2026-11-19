@@ -131,6 +131,9 @@ const STYLES = `
   border: 1px solid #2f3b52; border-radius: 6px; padding: 4px 10px;
 }
 .popup .act-link:hover { background: rgba(86, 156, 255, 0.15); }
+/* padding-left: 12px は right:-44px からボタン幅 32px を引いた値で、字幕枠と▲▼の
+   すき間を埋めている。片方を変えたらもう片方も合わせること（すき間が開くと
+   ▲▼へ移る途中で字幕枠から出たことになり、再生が一瞬動いてしまう）。 */
 .pos-controls {
   position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
   display: flex; flex-direction: column; gap: 4px; padding-left: 12px;
@@ -340,6 +343,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     // （ポップアップがあれば下の hidePopup(false) が同じ通知を送る）。
     if (inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: false });
     inSubtitle = false;
+    // ドラッグ状態も解除する。残すと、枠外へはみ出したドラッグ中に字幕が消えた後の
+    // mouseup が resume:true を送り、「clearLine では再開しない」が崩れる。
+    dragging = false;
     original.replaceChildren();
     wordRefs = [];
     currentLineVideoTime = 0;

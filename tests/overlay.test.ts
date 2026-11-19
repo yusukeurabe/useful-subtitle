@@ -218,6 +218,15 @@ describe('createOverlay — 字幕ホバーの通知', () => {
     expect(ends).toEqual([{ resume: true }]);
   });
 
+  it('ドラッグ中に枠外へ出て clearLine された後の mouseup では再開を通知しない', () => {
+    enter();
+    shadow().querySelector<HTMLSpanElement>('.word')!.dispatchEvent(new MouseEvent('mousedown'));
+    leave();
+    overlay!.clearLine();
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(ends).not.toContainEqual({ resume: true });
+  });
+
   it('destroy で開いているポップアップを閉じても resume:false にとどめる', () => {
     enter();
     open();
