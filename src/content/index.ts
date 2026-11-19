@@ -9,7 +9,8 @@ import { createTranscriptRecorder, createRollingTranscriptRecorder } from './tra
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { fetchWordInfo } from './word';
-import { findVideo, pauseVideo, seekVideo } from './videoControl';
+import { findVideo, pauseVideo, resumeVideo, seekVideo } from './videoControl';
+import { createHoverPause } from './hoverPause';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
 import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
@@ -32,6 +33,10 @@ async function main(): Promise<void> {
     translationTimer = undefined;
   };
 
+  // 字幕ホバーで一時停止（設定 OFF なら null で、通知は何もしない）。
+  const hoverPause = settings.pauseOnSubtitleHover
+    ? createHoverPause({ findVideo, resume: resumeVideo })
+    : null;
   let overlay!: Overlay;
   overlay = createOverlay(
     {
@@ -39,6 +44,8 @@ async function main(): Promise<void> {
         void runLookup(overlay, settings, selection, sentence, anchor),
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
       onSeek: seekVideo,
+      onHoverStart: () => hoverPause?.start(),
+      onHoverEnd: (opts) => hoverPause?.end(opts),
     },
     {
       bottomPercent: settings.subtitleBottomPercent,

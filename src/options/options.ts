@@ -46,6 +46,7 @@ export async function init(): Promise<void> {
   const lang = el<HTMLSelectElement>('lang');
   const dualSubtitle = el<HTMLInputElement>('dualSubtitle');
   const autoPause = el<HTMLInputElement>('autoPause');
+  const pauseOnHover = el<HTMLInputElement>('pauseOnHover');
   const truecaseSubtitle = el<HTMLInputElement>('truecaseSubtitle');
   const showTranscriptPanel = el<HTMLInputElement>('showTranscriptPanel');
   const testBtn = el<HTMLButtonElement>('test');
@@ -66,6 +67,7 @@ export async function init(): Promise<void> {
   lang.value = s.explanationLanguage;
   dualSubtitle.checked = s.dualSubtitle;
   autoPause.checked = s.autoPauseOnClick;
+  pauseOnHover.checked = s.pauseOnSubtitleHover;
   truecaseSubtitle.checked = s.truecaseSubtitle;
   showTranscriptPanel.checked = s.showTranscriptPanel;
 
@@ -82,12 +84,13 @@ export async function init(): Promise<void> {
       explanationLanguage: lang.value as ExplanationLanguage,
       dualSubtitle: dualSubtitle.checked,
       autoPauseOnClick: autoPause.checked,
+      pauseOnSubtitleHover: pauseOnHover.checked,
       truecaseSubtitle: truecaseSubtitle.checked,
       showTranscriptPanel: showTranscriptPanel.checked,
     });
 
   for (const field of [
-    provider, apiKey, model, lang, dualSubtitle, autoPause,
+    provider, apiKey, model, lang, dualSubtitle, autoPause, pauseOnHover,
     truecaseSubtitle, showTranscriptPanel,
   ]) {
     field.addEventListener('change', () => {

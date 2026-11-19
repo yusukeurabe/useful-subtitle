@@ -8,9 +8,10 @@ const mocks = vi.hoisted(() => ({
   panel: { clear: vi.fn(), append: vi.fn(), setTranslation: vi.fn(), updateActiveByTime: vi.fn(), setVisible: vi.fn() },
   request: vi.fn(),
   createPanel: vi.fn(),
+  createOverlay: vi.fn(),
 }));
 vi.mock('../src/content/captionObserver', () => ({ startCaptionObserver: mocks.observe }));
-vi.mock('../src/content/overlay', () => ({ createOverlay: () => mocks.overlay }));
+vi.mock('../src/content/overlay', () => ({ createOverlay: mocks.createOverlay }));
 vi.mock('../src/content/transcriptPanel', () => ({ createTranscriptPanel: mocks.createPanel }));
 vi.mock('../src/shared/messages', () => ({ sendRequest: mocks.request }));
 
@@ -19,6 +20,7 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   mocks.createPanel.mockReturnValue(mocks.panel);
+  mocks.createOverlay.mockReturnValue(mocks.overlay);
   const add = document.addEventListener.bind(document);
   vi.spyOn(document, 'addEventListener').mockImplementation((type, listener, options) => {
     listeners.push([type, listener, options]);
@@ -33,15 +35,23 @@ afterEach(() => {
 });
 
 async function bootWithAutoPause(autoPauseOnClick: boolean) {
+  return bootWithSettings({ autoPauseOnClick });
+}
+
+async function bootWithSettings(settings: Record<string, unknown>) {
   vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=autopause'));
   document.body.innerHTML = '<div id="movie_player"><video class="html5-main-video"></video></div>';
   const video = document.querySelector('video')!;
   Object.defineProperty(video, 'paused', { configurable: true, value: false });
   const pause = vi.spyOn(video, 'pause').mockImplementation(() => undefined);
-  await chrome.storage.local.set({ autoPauseOnClick });
+  await chrome.storage.local.set(settings);
   await import('../src/content/index');
   await new Promise(resolve => setTimeout(resolve, 0));
-  return { pause, callbacks: mocks.createPanel.mock.calls[0][0] };
+  return {
+    pause,
+    callbacks: mocks.createPanel.mock.calls[0][0],
+    overlayCallbacks: mocks.createOverlay.mock.calls[0][0],
+  };
 }
 
 it('pauses the video on a history word click when auto pause is on', async () => {
@@ -53,6 +63,18 @@ it('pauses the video on a history word click when auto pause is on', async () =>
 it('leaves history word clicks to the row seek when auto pause is off', async () => {
   const { callbacks } = await bootWithAutoPause(false);
   expect(callbacks.onWordClick).toBeUndefined();
+});
+
+it('pauses the video when the cursor enters the subtitle with hover pause on (default)', async () => {
+  const { pause, overlayCallbacks } = await bootWithSettings({});
+  overlayCallbacks.onHoverStart();
+  expect(pause).toHaveBeenCalledTimes(1);
+});
+
+it('does not pause on subtitle hover when hover pause is off', async () => {
+  const { pause, overlayCallbacks } = await bootWithSettings({ pauseOnSubtitleHover: false });
+  overlayCallbacks.onHoverStart();
+  expect(pause).not.toHaveBeenCalled();
 });
 
 it('keeps progressive YouTube words in one history row with the original seek time', async () => {

@@ -12,6 +12,13 @@ export interface OverlayCallbacks {
   onPlayAudio: (selection: string, audioUrl: string | null) => void;
   /** 字幕先頭の▶が押されたとき。引数はその字幕が現れた瞬間の動画位置（秒）。 */
   onSeek: (videoTime: number) => void;
+  /** 字幕枠にカーソルが入ったとき（字幕ホバーで一時停止用）。 */
+  onHoverStart?: () => void;
+  /**
+   * 字幕枠とポップアップのホバーが終わったとき。
+   * resume=false はポップアップ外側のクリック等で閉じた場合（再開はユーザーに委ねる）。
+   */
+  onHoverEnd?: (opts: { resume: boolean }) => void;
 }
 
 export interface OverlayOptions {
@@ -124,9 +131,12 @@ const STYLES = `
   border: 1px solid #2f3b52; border-radius: 6px; padding: 4px 10px;
 }
 .popup .act-link:hover { background: rgba(86, 156, 255, 0.15); }
+/* padding-left: 12px は right:-44px からボタン幅 32px を引いた値で、字幕枠と▲▼の
+   すき間を埋めている。片方を変えたらもう片方も合わせること（すき間が開くと
+   ▲▼へ移る途中で字幕枠から出たことになり、再生が一瞬動いてしまう）。 */
 .pos-controls {
   position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 4px; padding-left: 12px;
   opacity: 0.2; transition: opacity 0.2s;
 }
 .subtitle:hover .pos-controls { opacity: 0.9; }
@@ -229,6 +239,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let dragStart = -1;
   let dragEnd = -1;
   let dragging = false;
+  // 字幕枠の中にカーソルがあるか（字幕ホバーで一時停止用）。
+  let inSubtitle = false;
 
   const clearHighlight = (): void => {
     for (const w of wordRefs) w.el.classList.remove('selected');
@@ -260,6 +272,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (!dragging) return;
     dragging = false;
     if (dragStart >= 0 && dragEnd >= 0) finishSelection(dragStart, dragEnd);
+    // ドラッグ中に字幕枠を出ていて、ポップアップも開かなかったらここでホバー終了を通知する。
+    if (!inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: true });
   };
 
   const onMouseMove = (e: MouseEvent): void => {
@@ -274,7 +288,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   const onDocMouseDown = (e: MouseEvent): void => {
     // シャドウ内（単語/ポップアップ）クリックは host にリターゲットされる。それ以外なら閉じる。
-    if (popup && e.target !== host) hidePopup();
+    // 外側クリックで閉じた場合は再生の再開をユーザーに委ねる（Prime は動画クリックで
+    // 再生/停止が切り替わるので、こちらでも再開すると二重に切り替わる）。
+    if (popup && e.target !== host) hidePopup(false);
   };
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') hidePopup();
@@ -284,7 +300,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     subtitle.hidden = false;
     currentSentence = sentence;
     currentLineVideoTime = videoTime;
-    hidePopup();
+    // 次の字幕で閉じても再開はしない（ホバー停止中に字幕が描き直された場合に
+    // 勝手に再生が始まらないようにするため）。
+    hidePopup(false);
     original.replaceChildren();
     wordRefs = [];
 
@@ -319,11 +337,20 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   function clearLine(): void {
     subtitle.hidden = true;
+    // 隠した字幕の上にはカーソルが居られない。ただし再開はしない
+    // （停止中に字幕が消えた場合に再生と停止を繰り返さないため）。
+    // ポップアップが無ければここで resume:false を送り、停止の記録だけを消させる
+    // （ポップアップがあれば下の hidePopup(false) が同じ通知を送る）。
+    if (inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: false });
+    inSubtitle = false;
+    // ドラッグ状態も解除する。残すと、枠外へはみ出したドラッグ中に字幕が消えた後の
+    // mouseup が resume:true を送り、「clearLine では再開しない」が崩れる。
+    dragging = false;
     original.replaceChildren();
     wordRefs = [];
     currentLineVideoTime = 0;
     setTranslation({ kind: 'none' });
-    hidePopup();
+    hidePopup(false);
   }
 
   function setTranslation(state: TranslationState): void {
@@ -380,7 +407,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const close = document.createElement('div');
     close.className = 'close';
     close.textContent = '×';
-    close.addEventListener('click', hidePopup);
+    close.addEventListener('click', () => hidePopup());
     p.appendChild(close);
 
     const sel = document.createElement('div');
@@ -482,8 +509,13 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
-  function hidePopup(): void {
+  /**
+   * ポップアップを閉じる。実際に閉じた場合、カーソルが字幕枠の外ならホバー終了を通知する
+   * （ポップアップが開いている間はホバー継続とみなしているため）。
+   */
+  function hidePopup(resume = true): void {
     popupGeneration++;
+    const wasOpen = popup !== null;
     if (popup) {
       popup.remove();
       popup = null;
@@ -494,20 +526,36 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupAnchor = null;
     popupAudioUrl = null;
     clearHighlight();
+    if (wasOpen && !inSubtitle) callbacks.onHoverEnd?.({ resume });
   }
+
+  // --- 字幕ホバー（一時停止用）---
+  // ポップアップは字幕枠の外に出るので、開いている間はホバー継続とみなす。
+  subtitle.addEventListener('mouseenter', () => {
+    inSubtitle = true;
+    callbacks.onHoverStart?.();
+  });
+  subtitle.addEventListener('mouseleave', () => {
+    // clearLine で隠した後にも Chrome は遅れて mouseleave を送ってくる。既に枠外扱いなら無視する。
+    if (!inSubtitle) return;
+    inSubtitle = false;
+    // フレーズのドラッグ中に枠外へ出ても通知しない（選択を終えた onMouseUp で判断する）。
+    if (dragging) return;
+    if (!popup) callbacks.onHoverEnd?.({ resume: true });
+  });
 
   // --- マウント & 全画面追従 ---
   const attach = (): void => {
     const target = youtube ? youtubePlayer() : document.fullscreenElement ?? document.body;
     if (!target) {
-      hidePopup();
+      hidePopup(false);
       host.remove();
       hideStyle.remove();
       return;
     }
     if (host.parentElement !== target) {
       target.appendChild(host);
-      hidePopup();
+      hidePopup(false);
     }
     if (!hideStyle.isConnected) document.head.appendChild(hideStyle);
   };
@@ -522,7 +570,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   attach();
 
   function destroy(): void {
-    hidePopup();
+    hidePopup(false);
     document.removeEventListener('mouseup', onMouseUp, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
@@ -541,7 +589,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     setPopupMeaning,
     setPopupError,
     setPopupWordInfo,
-    hidePopup,
+    hidePopup: () => hidePopup(),
     syncMount: attach,
     destroy,
   };
