@@ -15,7 +15,10 @@ export interface HoverPause {
 export interface HoverPauseDeps {
   /** 本編 video を返す（無ければ null）。 */
   findVideo: () => HTMLVideoElement | null;
-  /** 停止中の v を再生し直す。戻り値は保留中の再開処理を取り消す関数。 */
+  /**
+   * 停止中の v を再生し直す。戻り値は保留中の再開処理を取り消す関数で、
+   * 再開が済んだ後や複数回呼ばれても安全であること。
+   */
   resume: (v: HTMLVideoElement) => () => void;
 }
 
@@ -25,8 +28,16 @@ export function createHoverPause(deps: HoverPauseDeps): HoverPause {
   let cancelResume: (() => void) | null = null;
 
   const forget = (): void => {
-    pausedVideo?.removeEventListener('play', forget);
+    pausedVideo?.removeEventListener('play', onPlay);
     pausedVideo = null;
+  };
+
+  // play() は paused を即座に false にするが、play イベントは後のタスクで届く。
+  // 自分の再開直後にまた start で止め直すと、その遅れたイベントが新しい記録を
+  // 消してしまう。届いた時点で再び停止中なら古いイベントとみなして無視し、
+  // 本当に再生中（ユーザーが再生した）ときだけ忘れる。
+  const onPlay = (): void => {
+    if (pausedVideo && !pausedVideo.paused) forget();
   };
 
   return {
@@ -39,7 +50,7 @@ export function createHoverPause(deps: HoverPauseDeps): HoverPause {
       if (!v || v.paused) return; // もともと停止中なら触らない
       v.pause();
       pausedVideo = v;
-      v.addEventListener('play', forget);
+      v.addEventListener('play', onPlay);
     },
     end({ resume }) {
       const v = pausedVideo;

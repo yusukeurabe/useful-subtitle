@@ -19,6 +19,15 @@ class FakeVideo extends EventTarget {
   }
 }
 
+/** 実ブラウザ同様、play イベントを後のタスクで届ける偽 video。 */
+class AsyncEventFakeVideo extends FakeVideo {
+  play(): Promise<void> {
+    this.paused = false;
+    setTimeout(() => this.dispatchEvent(new Event('play')), 0);
+    return Promise.resolve();
+  }
+}
+
 function setup(video: FakeVideo | null) {
   const cancel = vi.fn();
   const resume = vi.fn((_v: HTMLVideoElement) => cancel);
@@ -37,6 +46,8 @@ describe('createHoverPause', () => {
     expect(v.paused).toBe(true);
     hp.end({ resume: true });
     expect(resume).toHaveBeenCalledWith(v);
+    hp.end({ resume: true });
+    expect(resume).toHaveBeenCalledTimes(1);
   });
 
   it('もともと停止中なら何もせず、end でも再開しない', () => {
@@ -107,5 +118,20 @@ describe('createHoverPause', () => {
     hp.start();
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(v.paused).toBe(true);
+  });
+
+  it('自分の再開で遅れて届く play イベントでは、止め直した記録を消さない', async () => {
+    const v = new AsyncEventFakeVideo(true);
+    const { hp, resume, cancel } = setup(v);
+    resume.mockImplementation((video: HTMLVideoElement) => {
+      void video.play();
+      return cancel;
+    });
+    hp.start();
+    hp.end({ resume: true }); // play() で paused=false、play イベントは後で届く
+    hp.start(); // イベントが届く前に再び入って止め直す
+    await new Promise((r) => setTimeout(r, 0)); // 遅れた play イベントを届ける
+    hp.end({ resume: true });
+    expect(resume).toHaveBeenCalledTimes(2);
   });
 });
