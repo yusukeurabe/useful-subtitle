@@ -133,7 +133,7 @@ const STYLES = `
 .popup .act-link:hover { background: rgba(86, 156, 255, 0.15); }
 .pos-controls {
   position: absolute; right: -44px; top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 4px; padding-left: 12px;
   opacity: 0.2; transition: opacity 0.2s;
 }
 .subtitle:hover .pos-controls { opacity: 0.9; }
@@ -269,6 +269,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (!dragging) return;
     dragging = false;
     if (dragStart >= 0 && dragEnd >= 0) finishSelection(dragStart, dragEnd);
+    // ドラッグ中に字幕枠を出ていて、ポップアップも開かなかったらここでホバー終了を通知する。
+    if (!inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: true });
   };
 
   const onMouseMove = (e: MouseEvent): void => {
@@ -334,6 +336,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     subtitle.hidden = true;
     // 隠した字幕の上にはカーソルが居られない。ただし再開はしない
     // （停止中に字幕が消えた場合に再生と停止を繰り返さないため）。
+    // ポップアップが無ければここで resume:false を送り、停止の記録だけを消させる
+    // （ポップアップがあれば下の hidePopup(false) が同じ通知を送る）。
+    if (inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: false });
     inSubtitle = false;
     original.replaceChildren();
     wordRefs = [];
@@ -525,7 +530,11 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     callbacks.onHoverStart?.();
   });
   subtitle.addEventListener('mouseleave', () => {
+    // clearLine で隠した後にも Chrome は遅れて mouseleave を送ってくる。既に枠外扱いなら無視する。
+    if (!inSubtitle) return;
     inSubtitle = false;
+    // フレーズのドラッグ中に枠外へ出ても通知しない（選択を終えた onMouseUp で判断する）。
+    if (dragging) return;
     if (!popup) callbacks.onHoverEnd?.({ resume: true });
   });
 

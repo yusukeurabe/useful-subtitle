@@ -205,7 +205,26 @@ describe('createOverlay — 字幕ホバーの通知', () => {
   it('clearLine では再開を通知しない（ポップアップ無し）', () => {
     enter();
     overlay!.clearLine();
+    leave();
+    expect(ends).toEqual([{ resume: false }]);
+  });
+
+  it('枠外へはみ出すフレーズドラッグ中は通知せず、選択を終えたときに通知する', () => {
+    enter();
+    shadow().querySelector<HTMLSpanElement>('.word')!.dispatchEvent(new MouseEvent('mousedown'));
+    leave();
     expect(ends).toEqual([]);
+    document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(ends).toEqual([{ resume: true }]);
+  });
+
+  it('destroy で開いているポップアップを閉じても resume:false にとどめる', () => {
+    enter();
+    open();
+    leave();
+    overlay!.destroy();
+    overlay = null;
+    expect(ends).toEqual([{ resume: false }]);
   });
 
   it('clearLine でポップアップが閉じても resume:false にとどめる', () => {
