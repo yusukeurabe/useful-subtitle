@@ -52,8 +52,10 @@ export function createHoverPause(deps: {
 
 - `OverlayCallbacks` に任意の `onHoverStart?: () => void` と `onHoverEnd?: (opts: { resume: boolean }) => void` を追加。
 - `.subtitle` の `mouseenter` で `inSubtitle = true` にして `onHoverStart` を呼ぶ。`mouseleave` では `inSubtitle = false` にし、ポップアップが無ければ `onHoverEnd({resume: true})` を呼ぶ。
-- `hidePopup` で、実際にポップアップを閉じた場合は、`inSubtitle` でなければ `onHoverEnd` を呼ぶ。外側クリック（`onDocMouseDown`）経由のときは `resume: false`、それ以外は `resume: true`。
-- `clearLine` では `inSubtitle = false` にし、再開を伴うコールバックは呼ばない（ポップアップが開いていれば `resume: false` で閉じる）。全画面の付け替え（`attach`）と `destroy` で閉じる場合も `resume: false`。
+- `hidePopup` で、実際にポップアップを閉じた場合は、`inSubtitle` でなければ `onHoverEnd` を呼ぶ。× / Esc のときは `resume: true`、外側クリック（`onDocMouseDown`）・次の字幕描画（`renderLine`）・`clearLine`・全画面の付け替え（`attach`）・`destroy` のときは `resume: false`。
+- `clearLine` では、字幕枠の中にいた場合は `onHoverEnd({resume: false})` を通知してから `inSubtitle = false` にする（再開はしない）。`mouseleave` は `inSubtitle` が false なら無視する（隠した字幕に後から届く `mouseleave` で再開しないため）。
+- フレーズのドラッグ選択中は `mouseleave` を通知せず、`mouseup` 時に字幕枠外かつポップアップ無しなら `onHoverEnd({resume: true})` を通知する。
+- ▲▼ ボタンと字幕枠の間のすき間は当たり判定でつなぐ（すき間を通るたびに再生が一瞬動くのを防ぐ）。
 
 ### `src/content/index.ts`
 
