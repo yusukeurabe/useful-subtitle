@@ -32,13 +32,16 @@
 - `pointermove` / `pointerup` / `pointercancel` はドラッグ中だけ `document` に capture で登録し、終わったら外す。
   - 要素の `setPointerCapture` は使わない。再生中はセリフの合間に `clearLine` で字幕が隠れ、隠れた要素はポインタキャプチャを失ってドラッグが途切れるため。
   - `document` で受けていれば、字幕が隠れていてもドラッグは続き、`bottomPercent` が更新される。次の `renderLine` で字幕は新しい位置に出る（`bottom` は字幕要素のスタイルなので隠れていても保持される）。
-- `pointerdown` では `preventDefault()` と `stopPropagation()` を呼ぶ。Prime の再生/停止の切り替えや文字選択を起こさないため。
+- `pointermove` が `buttons === 0`（ボタンが離されている）で来たら、`pointerup` を取りこぼしたとみなし、`pointerup` と同じ手順でドラッグを終える（変わっていれば保存し、ホバー終了の判定もする）。
+- `pointerdown` では `preventDefault()` と `stopPropagation()` を呼ぶ。pointerdown 由来の再生/停止の切り替えや文字選択を起こさないため。
 - `destroy()` の時点でドラッグ中なら、`document` のリスナーを外す（保存はしない）。
 
 ## 周りの機能との関係
 
 - **単語の意味ポップアップ**：ドラッグ開始時に開いていれば `hidePopup(false)` で閉じる。字幕だけ動いてポップアップが取り残されるのを防ぐ。つまみは字幕枠の中にあるので `inSubtitle` は true のままで、ホバー終了は通知されない。
-- **字幕ホバーで一時停止**：つまみは字幕枠の中にあり、字幕はカーソルに付いてくるので、ドラッグ中は一時停止のまま。手を離した後にカーソルが字幕枠の外なら、通常の `mouseleave` → `onHoverEnd({ resume: true })` で再生に戻る。ここは新しい処理を足さない。
+- **字幕ホバーで一時停止**：ドラッグ中は字幕の `mouseleave` を無視する（`if (dragging || posDrag) return;`）。手を離したとき、カーソルが字幕枠の外にあり、ポップアップも開いていなければ、`onHoverEnd({ resume: true })` を 1 回送る。
+  - 理由：つまみの幅は 32px しかないので、上下にドラッグしながら横にずれたり、2% / 85% の上限・下限に当たって字幕が止まったりすると、カーソルが字幕枠から出てしまう。何もしないとドラッグの途中で再生が始まってしまう。
+  - ドラッグ中に `clearLine` があった場合は、`clearLine` がその時点で `resume:false` を送って一時停止の記録を消している。そのため、離したときの `resume:true` は hoverPause 側では何もしない。
 - **フレーズ選択のドラッグ（`dragging` 変数）**：つまみのドラッグとは別の状態変数（例: `posDrag`）で持ち、混ぜない。
 - **▲▼**：今までどおり。
 
@@ -53,10 +56,16 @@ jsdom 29 は `PointerEvent` を持つ。`host.getBoundingClientRect` をテス�
 5. ドラッグ中に `clearLine()` で字幕が隠れても、続く `pointermove` で位置が更新され、`pointerup` で保存される。
 6. ドラッグ開始でポップアップが閉じる。
 7. `pointerdown` が `defaultPrevented` になる。
+8. ホバーとの関係：ドラッグ中に字幕枠を出ても `onHoverEnd` は呼ばれず、離したときに `{ resume: true }` が 1 回だけ渡る。枠から出ずに離したときは呼ばれない。
+9. `pointerup` の取りこぼし：`buttons === 0` の `pointermove` でドラッグが終わり、見えている位置が 1 回保存され、その後の移動では動かない。
+10. ドラッグ中の `destroy()`：その後の `pointermove` / `pointerup` で保存も例外も起きない。
+11. ドラッグ中に `clearLine()` してから字幕枠を出て離すと、`onHoverEnd` が `[{ resume: false }, { resume: true }]` の順に呼ばれる。
 
 ## 実機確認
 
 - Prime Video と YouTube で、つまみをドラッグして字幕が動くこと、リロード後も位置が残ること、再生中に字幕が切り替わってもドラッグが続くことを確かめる。
+- Prime の全画面で、つまみをドラッグしても再生/停止が切り替わらないこと。
+- 下限 2% まで下げても、▼ が見えていて押せること。
 - 拡張は `dist` を再ビルドし、拡張の ↻ とページの再読み込みで反映する（worktree の `dist` を読み込む点に注意）。
 
 ## バージョン

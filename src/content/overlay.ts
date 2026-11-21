@@ -591,13 +591,16 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const changed = bottomPercent !== posDrag.startBottom;
     stopPosDrag();
     if (changed) options.onBottomChange(bottomPercent);
-    // ドラッグ中に字幕枠を出ていて、ポップアップも無ければここでホバー終了を通知する（onMouseUp と同じ）。
+    // 単語のドラッグと違い、つまみのドラッグは clearLine 後も続くので、離した時点で字幕が
+    // カーソルの外にあることがある。そのときはここでホバー終了を 1 回通知する。
+    // ドラッグ中に clearLine があった場合は、clearLine が既に一時停止の記録を消している
+    // （resume:false）ので、この通知は hoverPause 側では何もしない。
     if (!inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: true });
   };
 
   posHandle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || posDrag) return;
-    // Prime の再生/停止の切り替えや文字選択を起こさない。
+    // pointerdown 由来の再生/停止の切り替えや文字選択を起こさない。
     e.preventDefault();
     e.stopPropagation();
     // 字幕だけ動いてポップアップが取り残されないよう閉じる。つまみは字幕枠の中なので

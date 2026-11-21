@@ -465,5 +465,18 @@ describe('createOverlay — つまみのドラッグで字幕を上下に動か�
       pointer(document, 'pointerup', 400);
       expect(ends).toEqual([]);
     });
+
+    // つまみのドラッグは clearLine 後も意図的に続く。clearLine の時点で resume:false が送られ
+    // 一時停止の記録は消えているので、離したときの 2 回目（resume:true）は hoverPause.end の
+    // `if (!v) return` で何もしない（勝手に再生は始まらない）。
+    it('ドラッグ中に clearLine → 枠外へ出て離すと resume:false の後に resume:true を 1 回通知する', () => {
+      setupWithHover();
+      enter();
+      pointer(handle(), 'pointerdown', 500);
+      overlay!.clearLine();
+      leave();
+      pointer(document, 'pointerup', 500);
+      expect(ends).toEqual([{ resume: false }, { resume: true }]);
+    });
   });
 });
