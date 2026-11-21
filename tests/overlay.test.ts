@@ -256,3 +256,149 @@ describe('createOverlay — 字幕ホバーの通知', () => {
     expect(ends).toEqual([]);
   });
 });
+
+describe('createOverlay — つまみのドラッグで字幕を上下に動かす', () => {
+  let overlay: Overlay | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  const posControls = (): HTMLElement => shadow().querySelector<HTMLElement>('.pos-controls')!;
+  const handle = (): HTMLElement => shadow().querySelector<HTMLElement>('.pos-handle')!;
+  const subtitleEl = (): HTMLElement => shadow().querySelector<HTMLElement>('.subtitle')!;
+  const bottom = (): number => parseFloat(subtitleEl().style.bottom);
+
+  // jsdom はレイアウトしないので、基準枠（host）の高さを固定する。
+  const fixHostHeight = (h: number): void => {
+    const host = document.getElementById(HOST_ID)!;
+    host.getBoundingClientRect = () => new DOMRect(0, 0, 800, h);
+  };
+
+  const pointer = (target: EventTarget, type: string, clientY: number): PointerEvent => {
+    const e = new PointerEvent(type, {
+      pointerId: 1, button: 0, clientY, bubbles: true, composed: true, cancelable: true,
+    });
+    target.dispatchEvent(e);
+    return e;
+  };
+
+  const setup = (bottomPercent = 10): number[] => {
+    const saved: number[] = [];
+    overlay = createOverlay(noopCallbacks(), {
+      bottomPercent,
+      onBottomChange: (p) => saved.push(p),
+    });
+    fixHostHeight(1000);
+    overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 0);
+    return saved;
+  };
+
+  it('つまみが ▲ と ▼ の間に描画される', () => {
+    setup();
+    const kids = [...posControls().children] as HTMLElement[];
+    expect(kids.map((k) => k.className)).toEqual(['pos-btn', 'pos-handle', 'pos-btn']);
+    expect(kids.map((k) => k.textContent)).toEqual(['▲', '⠿', '▼']);
+  });
+
+  it('上へ 100px ドラッグすると高さ 1000px に対して 10% 上がる', () => {
+    setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', 400);
+    expect(bottom()).toBeCloseTo(20);
+    pointer(document, 'pointermove', 550);
+    expect(bottom()).toBeCloseTo(5);
+  });
+
+  it('下限 2% と上限 85% を超えない', () => {
+    setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', -5000);
+    expect(bottom()).toBe(85);
+    pointer(document, 'pointermove', 5000);
+    expect(bottom()).toBe(2);
+  });
+
+  it('ドラッグ中は保存せず、離したときに最終位置を 1 回だけ保存する', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', 450);
+    pointer(document, 'pointermove', 400);
+    expect(saved).toEqual([]);
+    pointer(document, 'pointerup', 400);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toBeCloseTo(20);
+    // 離した後の移動では動かない。
+    pointer(document, 'pointermove', 100);
+    expect(bottom()).toBeCloseTo(20);
+    expect(saved).toHaveLength(1);
+  });
+
+  it('動かさずに離したときは保存しない', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointerup', 500);
+    expect(saved).toEqual([]);
+  });
+
+  it('pointercancel でも見えている位置を保存して終わる', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', 400);
+    pointer(document, 'pointercancel', 400);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toBeCloseTo(20);
+  });
+
+  it('ドラッグ中に字幕が消えてもドラッグは続き、離すと保存される', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    overlay!.clearLine();
+    expect(subtitleEl().hidden).toBe(true);
+    pointer(document, 'pointermove', 300);
+    pointer(document, 'pointerup', 300);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toBeCloseTo(30);
+    overlay!.renderLine('Next line.', tokenizeLine('Next line.'), 1);
+    expect(bottom()).toBeCloseTo(30);
+  });
+
+  it('ドラッグ開始で単語のポップアップを閉じる', () => {
+    setup(10);
+    overlay!.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+    expect(shadow().querySelector('.popup')).not.toBeNull();
+    pointer(handle(), 'pointerdown', 500);
+    expect(shadow().querySelector('.popup')).toBeNull();
+  });
+
+  it('つまみの pointerdown は既定動作を止める（再生切り替え・文字選択を防ぐ）', () => {
+    setup(10);
+    const e = pointer(handle(), 'pointerdown', 500);
+    expect(e.defaultPrevented).toBe(true);
+  });
+
+  it('左ボタン以外ではドラッグを始めない', () => {
+    setup(10);
+    handle().dispatchEvent(new PointerEvent('pointerdown', {
+      pointerId: 1, button: 2, clientY: 500, bubbles: true, composed: true, cancelable: true,
+    }));
+    pointer(document, 'pointermove', 400);
+    expect(bottom()).toBe(10);
+  });
+
+  it('▲▼ ボタンは今までどおり 6% ずつ動かして保存する', () => {
+    const saved = setup(10);
+    const [up, , down] = [...posControls().children] as HTMLElement[];
+    up.click();
+    expect(bottom()).toBe(16);
+    down.click();
+    expect(bottom()).toBe(10);
+    expect(saved).toEqual([16, 10]);
+  });
+});

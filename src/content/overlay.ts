@@ -146,6 +146,13 @@ const STYLES = `
   cursor: pointer; pointer-events: auto; line-height: 1;
 }
 .pos-btn:hover { background: rgba(86, 156, 255, 0.85); }
+.pos-handle {
+  width: 32px; height: 22px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 14px; line-height: 22px;
+  text-align: center; cursor: ns-resize; pointer-events: auto;
+  touch-action: none; user-select: none;
+}
+.pos-handle:hover { background: rgba(86, 156, 255, 0.85); }
 `;
 
 interface WordRef {
@@ -185,8 +192,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   const STEP = 6;
   const MIN = 2;
   const MAX = 85;
+  const clampBottom = (percent: number): number => Math.max(MIN, Math.min(MAX, percent));
   const move = (delta: number): void => {
-    bottomPercent = Math.max(MIN, Math.min(MAX, bottomPercent + delta));
+    bottomPercent = clampBottom(bottomPercent + delta);
     applyBottom();
     options.onBottomChange(bottomPercent);
   };
@@ -202,7 +210,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   downBtn.textContent = '▼';
   downBtn.title = '字幕を下へ';
   downBtn.addEventListener('click', () => move(-STEP));
-  posControls.append(upBtn, downBtn);
+  // ドラッグで上下に動かすつまみ。処理は「字幕位置のドラッグ」の節で登録する。
+  const posHandle = document.createElement('div');
+  posHandle.className = 'pos-handle';
+  posHandle.textContent = '⠿';
+  posHandle.title = 'ドラッグで字幕を上下に移動';
+  posControls.append(upBtn, posHandle, downBtn);
   subtitle.appendChild(posControls);
   applyBottom();
 
@@ -544,6 +557,50 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (!popup) callbacks.onHoverEnd?.({ resume: true });
   });
 
+  // --- 字幕位置のドラッグ（つまみ）---
+  // move/up/cancel はドラッグ中だけ document で受ける。要素の pointer capture を使うと、
+  // 再生中のセリフの合間に clearLine で字幕が隠れたときにキャプチャが外れてドラッグが途切れる。
+  // 単語のフレーズ選択（dragging）とは別の状態として持つ。
+  let posDrag: { pointerId: number; startY: number; startBottom: number } | null = null;
+
+  const onPosDragMove = (e: PointerEvent): void => {
+    if (!posDrag || e.pointerId !== posDrag.pointerId) return;
+    const height = host.getBoundingClientRect().height;
+    if (height <= 0) return;
+    const dy = e.clientY - posDrag.startY;
+    bottomPercent = clampBottom(posDrag.startBottom - (dy / height) * 100);
+    applyBottom();
+  };
+
+  const stopPosDrag = (): void => {
+    document.removeEventListener('pointermove', onPosDragMove, true);
+    document.removeEventListener('pointerup', onPosDragEnd, true);
+    document.removeEventListener('pointercancel', onPosDragEnd, true);
+    posDrag = null;
+  };
+
+  // pointercancel でも「見えている位置」をそのまま保存する。
+  const onPosDragEnd = (e: PointerEvent): void => {
+    if (!posDrag || e.pointerId !== posDrag.pointerId) return;
+    const changed = bottomPercent !== posDrag.startBottom;
+    stopPosDrag();
+    if (changed) options.onBottomChange(bottomPercent);
+  };
+
+  posHandle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || posDrag) return;
+    // Prime の再生/停止の切り替えや文字選択を起こさない。
+    e.preventDefault();
+    e.stopPropagation();
+    // 字幕だけ動いてポップアップが取り残されないよう閉じる。つまみは字幕枠の中なので
+    // inSubtitle は true のままで、ホバー終了は通知されない。
+    hidePopup(false);
+    posDrag = { pointerId: e.pointerId, startY: e.clientY, startBottom: bottomPercent };
+    document.addEventListener('pointermove', onPosDragMove, true);
+    document.addEventListener('pointerup', onPosDragEnd, true);
+    document.addEventListener('pointercancel', onPosDragEnd, true);
+  });
+
   // --- マウント & 全画面追従 ---
   const attach = (): void => {
     const target = youtube ? youtubePlayer() : document.fullscreenElement ?? document.body;
@@ -571,6 +628,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   function destroy(): void {
     hidePopup(false);
+    stopPosDrag();
     document.removeEventListener('mouseup', onMouseUp, true);
     document.removeEventListener('mousemove', onMouseMove, true);
     document.removeEventListener('mousedown', onDocMouseDown, true);
