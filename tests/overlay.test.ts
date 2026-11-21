@@ -281,9 +281,11 @@ describe('createOverlay — つまみのドラッグで字幕を上下に動か�
     host.getBoundingClientRect = () => new DOMRect(0, 0, 800, h);
   };
 
+  // jsdom の PointerEvent は buttons の既定が 0 なので、押下中のイベントは buttons: 1 を渡す。
   const pointer = (target: EventTarget, type: string, clientY: number): PointerEvent => {
     const e = new PointerEvent(type, {
       pointerId: 1, button: 0, clientY, bubbles: true, composed: true, cancelable: true,
+      buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
     });
     target.dispatchEvent(e);
     return e;
@@ -400,5 +402,68 @@ describe('createOverlay — つまみのドラッグで字幕を上下に動か�
     down.click();
     expect(bottom()).toBe(10);
     expect(saved).toEqual([16, 10]);
+  });
+
+  it('ボタンが離されたまま pointermove が来たら（pointerup の取りこぼし）ドラッグを終えて 1 回保存する', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', 400);
+    document.dispatchEvent(new PointerEvent('pointermove', {
+      pointerId: 1, button: 0, buttons: 0, clientY: 300, bubbles: true, composed: true, cancelable: true,
+    }));
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toBeCloseTo(20);
+    pointer(document, 'pointermove', 100);
+    expect(bottom()).toBeCloseTo(20);
+    expect(saved).toHaveLength(1);
+  });
+
+  it('ドラッグ中に destroy しても、その後のポインタ操作で保存も例外も起きない', () => {
+    const saved = setup(10);
+    pointer(handle(), 'pointerdown', 500);
+    pointer(document, 'pointermove', 400);
+    overlay!.destroy();
+    overlay = null;
+    expect(() => {
+      pointer(document, 'pointermove', 300);
+      pointer(document, 'pointerup', 300);
+    }).not.toThrow();
+    expect(saved).toEqual([]);
+  });
+
+  describe('字幕ホバーの一時停止との関係', () => {
+    let ends: Array<{ resume: boolean }>;
+
+    const setupWithHover = (): void => {
+      ends = [];
+      overlay = createOverlay(
+        { ...noopCallbacks(), onHoverEnd: (o) => void ends.push(o) },
+        { bottomPercent: 10, onBottomChange: () => {} },
+      );
+      fixHostHeight(1000);
+      overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 0);
+    };
+    const enter = (): void => void subtitleEl().dispatchEvent(new MouseEvent('mouseenter'));
+    const leave = (): void => void subtitleEl().dispatchEvent(new MouseEvent('mouseleave'));
+
+    it('つまみのドラッグ中に字幕枠を出ても通知せず、離したときに resume:true を 1 回通知する', () => {
+      setupWithHover();
+      enter();
+      pointer(handle(), 'pointerdown', 500);
+      pointer(document, 'pointermove', 400);
+      leave();
+      expect(ends).toEqual([]);
+      pointer(document, 'pointerup', 400);
+      expect(ends).toEqual([{ resume: true }]);
+    });
+
+    it('字幕枠から出ずに離したときは通知しない', () => {
+      setupWithHover();
+      enter();
+      pointer(handle(), 'pointerdown', 500);
+      pointer(document, 'pointermove', 400);
+      pointer(document, 'pointerup', 400);
+      expect(ends).toEqual([]);
+    });
   });
 });

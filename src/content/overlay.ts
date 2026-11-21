@@ -552,8 +552,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     // clearLine で隠した後にも Chrome は遅れて mouseleave を送ってくる。既に枠外扱いなら無視する。
     if (!inSubtitle) return;
     inSubtitle = false;
-    // フレーズのドラッグ中に枠外へ出ても通知しない（選択を終えた onMouseUp で判断する）。
-    if (dragging) return;
+    // フレーズのドラッグ中・つまみのドラッグ中に枠外へ出ても通知しない
+    // （ドラッグを終えた onMouseUp / onPosDragEnd で判断する）。
+    if (dragging || posDrag) return;
     if (!popup) callbacks.onHoverEnd?.({ resume: true });
   });
 
@@ -565,6 +566,11 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   const onPosDragMove = (e: PointerEvent): void => {
     if (!posDrag || e.pointerId !== posDrag.pointerId) return;
+    // ボタンが離されているのに move が来た＝pointerup を取りこぼした。ここでドラッグを終える。
+    if (e.buttons === 0) {
+      onPosDragEnd(e);
+      return;
+    }
     const height = host.getBoundingClientRect().height;
     if (height <= 0) return;
     const dy = e.clientY - posDrag.startY;
@@ -585,6 +591,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const changed = bottomPercent !== posDrag.startBottom;
     stopPosDrag();
     if (changed) options.onBottomChange(bottomPercent);
+    // ドラッグ中に字幕枠を出ていて、ポップアップも無ければここでホバー終了を通知する（onMouseUp と同じ）。
+    if (!inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: true });
   };
 
   posHandle.addEventListener('pointerdown', (e) => {
