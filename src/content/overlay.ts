@@ -30,6 +30,12 @@ export interface OverlayOptions {
   onBottomChange: (percent: number) => void;
 }
 
+/** ポップアップ下段に出す「いま表示中の字幕一文」の意味。null＝取得中。 */
+export type PopupSentenceMeaning =
+  | { ok: true; translation: string; explanation: string }
+  | { ok: false; error: string }
+  | null;
+
 export type TranslationState =
   | { kind: 'loading' }
   | { kind: 'text'; text: string }
@@ -44,6 +50,8 @@ export interface Overlay {
   setPopupMeaning(explanation: string, senses: WordSense[]): void;
   setPopupError(message: string): void;
   setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
+  /** ポップアップ下段（字幕一文の和訳＋解説）を描画する。呼ぶまでは下段を出さない。 */
+  setPopupSentence(meaning: PopupSentenceMeaning): void;
   hidePopup(): void;
   syncMount(): void;
   destroy(): void;
@@ -101,6 +109,11 @@ const STYLES = `
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
+/* 下段：いま表示中の字幕一文の和訳＋解説（字幕一覧のホバーポップアップ下段と同じ見せ方）。 */
+.popup .sentence { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3a3a3a; }
+.popup .sentence .s-label { font-size: 11px; color: #8ab4ff; font-weight: 700; margin-bottom: 2px; }
+.popup .sentence .s-trans { color: #ffe08a; white-space: pre-wrap; margin-bottom: 4px; }
+.popup .sentence .s-expl { white-space: pre-wrap; color: #cfcfcf; font-size: 13px; }
 .popup .close {
   position: absolute; top: 6px; right: 8px; cursor: pointer; color: #aaa;
   font-size: 16px; line-height: 1;
@@ -302,6 +315,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let popupBody: HTMLDivElement | null = null;
   let popupIpa: HTMLSpanElement | null = null;
   let popupSenses: HTMLDivElement | null = null;
+  let popupSentence: HTMLDivElement | null = null;
   let popupAnchor: DOMRect | null = null;
   let popupSelection = '';
   let popupAudioUrl: string | null = null;
@@ -386,7 +400,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     replayBtn.className = 'replay-btn';
     replayBtn.textContent = '▶';
     replayBtn.title = '字幕の頭から再生';
-    replayBtn.addEventListener('click', () => callbacks.onSeek(currentLineVideoTime));
+    replayBtn.addEventListener('click', () => {
+      // 開いている単語ポップアップは閉じる（×を押さなくても消えるように）。
+      // 再開は▶側の再生に任せる。
+      hidePopup(false);
+      callbacks.onSeek(currentLineVideoTime);
+    });
     original.appendChild(replayBtn);
 
     for (const t of tokens) {
@@ -450,21 +469,60 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     return popup;
   };
 
+  // 字幕を避けて置くとき、これより低くしか取れないなら避けるのをあきらめる（読めないほど小さくしない）。
+  const MIN_AVOID_POPUP_HEIGHT = 120;
+  const constrainPopupHeight = (maxHeight: number | null): void => {
+    if (!popup) return;
+    if (maxHeight === null) {
+      popup.style.boxSizing = '';
+      popup.style.maxHeight = '';
+      popup.style.overflowY = '';
+      return;
+    }
+    popup.style.boxSizing = 'border-box';
+    popup.style.maxHeight = `${Math.max(0, maxHeight)}px`;
+    popup.style.overflowY = 'auto';
+  };
+
+  /**
+   * ポップアップを字幕に被らない位置へ置く。避ける範囲は、クリックした語と字幕枠全体
+   * （複数行の字幕・下の和訳行を含む）。字幕の上 → 入らなければ下 → どちらにも入らなければ
+   * 広い側に高さを詰めて（中はスクロール）置く。それも狭すぎるときだけ従来どおり画面内に収める。
+   */
   const positionPopup = (anchor: DOMRect): void => {
     if (!popup) return;
     const margin = 8;
     const bounds = youtube ? host.getBoundingClientRect() : new DOMRect(0, 0, window.innerWidth, window.innerHeight);
-    if (youtube) {
-      popup.style.boxSizing = 'border-box';
-      popup.style.maxHeight = `${Math.max(0, bounds.height - margin * 2)}px`;
-      popup.style.overflowY = 'auto';
-    }
+    const fullHeight = bounds.height - margin * 2;
+    // 内容が更新されるたびに呼ばれるので、まず本来の高さを測れる状態に戻す。
+    constrainPopupHeight(youtube ? fullHeight : null);
     const pw = popup.offsetWidth;
-    const ph = popup.offsetHeight;
+    let ph = popup.offsetHeight;
     let left = anchor.left - bounds.left + anchor.width / 2 - pw / 2;
     left = Math.max(margin, Math.min(left, bounds.width - pw - margin));
-    let top = anchor.top - bounds.top - ph - margin;
-    if (top < margin) top = anchor.bottom - bounds.top + margin;
+
+    const sub = subtitle.hidden ? null : subtitle.getBoundingClientRect();
+    const hasSub = sub !== null && sub.height > 0;
+    const avoidTop = (hasSub ? Math.min(anchor.top, sub.top) : anchor.top) - bounds.top;
+    const avoidBottom = (hasSub ? Math.max(anchor.bottom, sub.bottom) : anchor.bottom) - bounds.top;
+    const spaceAbove = avoidTop - margin * 2;
+    const spaceBelow = bounds.height - avoidBottom - margin * 2;
+
+    let top: number;
+    if (ph <= spaceAbove) {
+      top = avoidTop - margin - ph;
+    } else if (ph <= spaceBelow) {
+      top = avoidBottom + margin;
+    } else if (Math.max(spaceAbove, spaceBelow) >= MIN_AVOID_POPUP_HEIGHT) {
+      const above = spaceAbove >= spaceBelow;
+      constrainPopupHeight(above ? spaceAbove : spaceBelow);
+      ph = popup.offsetHeight;
+      top = above ? avoidTop - margin - ph : avoidBottom + margin;
+    } else {
+      // 字幕の上下どちらにも十分な余白が無い（小さいプレーヤー等）。被っても画面内に収める。
+      top = anchor.top - bounds.top - ph - margin;
+      if (top < margin) top = anchor.bottom - bounds.top + margin;
+    }
     top = Math.max(margin, Math.min(top, bounds.height - ph - margin));
     popup.style.left = `${left}px`;
     popup.style.top = `${top}px`;
@@ -533,6 +591,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupBody.textContent = 'Thinking…';
     p.appendChild(popupBody);
 
+    // 下段＝いま表示中の字幕一文の和訳＋解説。setPopupSentence が呼ばれるまで隠す。
+    popupSentence = document.createElement('div');
+    popupSentence.className = 'sentence';
+    popupSentence.hidden = true;
+    p.appendChild(popupSentence);
+
     positionPopup(anchor);
     return popupGeneration;
   }
@@ -584,6 +648,42 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
+  function setPopupSentence(meaning: PopupSentenceMeaning): void {
+    if (!popupSentence) return;
+    const sec = popupSentence;
+    sec.replaceChildren();
+    sec.hidden = false;
+    if (meaning === null) {
+      const loading = document.createElement('div');
+      loading.className = 'body loading';
+      loading.textContent = 'Thinking…';
+      sec.appendChild(loading);
+    } else if (!meaning.ok) {
+      const err = document.createElement('div');
+      err.className = 'body err';
+      err.textContent = meaning.error;
+      sec.appendChild(err);
+    } else {
+      if (meaning.translation) {
+        const label = document.createElement('div');
+        label.className = 's-label';
+        label.textContent = '和訳';
+        const trans = document.createElement('div');
+        trans.className = 's-trans';
+        trans.textContent = meaning.translation;
+        sec.append(label, trans);
+      }
+      if (meaning.explanation) {
+        const expl = document.createElement('div');
+        expl.className = 's-expl';
+        expl.textContent = meaning.explanation;
+        sec.appendChild(expl);
+      }
+      if (!sec.hasChildNodes()) sec.hidden = true;
+    }
+    if (popupAnchor) positionPopup(popupAnchor);
+  }
+
   /**
    * ポップアップを閉じる。実際に閉じた場合、カーソルが字幕枠の外ならホバー終了を通知する
    * （ポップアップが開いている間はホバー継続とみなしているため）。
@@ -598,6 +698,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupBody = null;
     popupIpa = null;
     popupSenses = null;
+    popupSentence = null;
     popupAnchor = null;
     popupAudioUrl = null;
     clearHighlight();
@@ -722,6 +823,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     setPopupMeaning,
     setPopupError,
     setPopupWordInfo,
+    setPopupSentence,
     hidePopup: () => hidePopup(),
     syncMount: attach,
     destroy,
