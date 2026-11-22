@@ -9,7 +9,7 @@ import { createTranscriptRecorder, createRollingTranscriptRecorder } from './tra
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { fetchWordInfo } from './word';
-import { findVideo, pauseVideo, resumeVideo, seekVideo } from './videoControl';
+import { findVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo } from './videoControl';
 import { createHoverPause } from './hoverPause';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
@@ -44,6 +44,7 @@ async function main(): Promise<void> {
         void runLookup(overlay, settings, selection, sentence, anchor),
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
       onSeek: seekVideo,
+      onRewind: rewindVideo,
       onHoverStart: () => hoverPause?.start(),
       onHoverEnd: (opts) => hoverPause?.end(opts),
     },

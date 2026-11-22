@@ -480,3 +480,66 @@ describe('createOverlay — つまみのドラッグで字幕を上下に動か�
     });
   });
 });
+
+describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
+  let overlay: Overlay | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  const bar = (): HTMLElement => shadow().querySelector<HTMLElement>('.rewind-bar')!;
+  const buttons = (): HTMLButtonElement[] =>
+    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn')];
+
+  it('↺5 と ↺10 のボタンが並ぶ', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(buttons().map((b) => b.textContent)).toEqual(['↺5', '↺10']);
+    expect(buttons().map((b) => b.title)).toEqual(['5秒戻る', '10秒戻る']);
+  });
+
+  it('クリックで onRewind が 5 / 10 で呼ばれる', () => {
+    const rewinds: number[] = [];
+    overlay = createOverlay(
+      { ...noopCallbacks(), onRewind: (s) => rewinds.push(s) },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    buttons()[0].click();
+    buttons()[1].click();
+    expect(rewinds).toEqual([5, 10]);
+  });
+
+  it('onRewind 未指定でもクリックで例外を出さない', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(() => buttons()[0].click()).not.toThrow();
+  });
+
+  it('字幕の直後に置かれ、字幕の子ではない（字幕が消えても残るため）', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const subtitle = shadow().querySelector<HTMLElement>('.subtitle')!;
+    expect(subtitle.contains(bar())).toBe(false);
+    expect(subtitle.nextElementSibling).toBe(bar());
+  });
+
+  it('clearLine で字幕が隠れてもバーは表示されたまま', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 0);
+    overlay.clearLine();
+    expect(shadow().querySelector<HTMLElement>('.subtitle')!.hidden).toBe(true);
+    expect(bar().hidden).toBe(false);
+  });
+
+  it('字幕の縦位置を CSS 変数で受け取り、▲▼で字幕と一緒に動く', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(bar().style.getPropertyValue('--sub-bottom')).toBe('10%');
+    const up = shadow().querySelector<HTMLButtonElement>('.pos-btn')!; // 先頭は ▲
+    up.click();
+    expect(bar().style.getPropertyValue('--sub-bottom')).toBe('16%');
+  });
+});

@@ -12,6 +12,8 @@ export interface OverlayCallbacks {
   onPlayAudio: (selection: string, audioUrl: string | null) => void;
   /** 字幕先頭の▶が押されたとき。引数はその字幕が現れた瞬間の動画位置（秒）。 */
   onSeek: (videoTime: number) => void;
+  /** 字幕下の巻き戻しボタン（↺5 / ↺10）が押されたとき。引数は戻す秒数。 */
+  onRewind?: (seconds: number) => void;
   /** 字幕枠にカーソルが入ったとき（字幕ホバーで一時停止用）。 */
   onHoverStart?: () => void;
   /**
@@ -153,6 +155,23 @@ const STYLES = `
   touch-action: none; user-select: none;
 }
 .pos-handle:hover { background: rgba(86, 156, 255, 0.85); }
+/* 字幕の真下に置く巻き戻しボタン。.subtitle の外の別要素なので字幕が消えても残る。
+   --sub-bottom は字幕の bottom（%）。36px = ボタン高さ 32px + すき間 4px で、
+   字幕を一番下まで下げたときは 4px で止まり字幕に少し重なる。 */
+.rewind-bar {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: max(4px, calc(var(--sub-bottom) - 36px));
+  display: flex; gap: 6px; pointer-events: auto;
+  opacity: 0.35; transition: opacity 0.2s;
+}
+.subtitle:hover ~ .rewind-bar, .rewind-bar:hover { opacity: 0.9; }
+.rewind-btn {
+  height: 32px; min-width: 44px; padding: 0 8px; border-radius: 6px; border: none;
+  background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 13px; line-height: 1;
+  font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  cursor: pointer;
+}
+.rewind-btn:hover { background: rgba(86, 156, 255, 0.85); }
 `;
 
 interface WordRef {
@@ -184,10 +203,24 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   const translation = document.createElement('div');
   translation.className = 'translation';
   subtitle.append(original, translation);
+  // 字幕の真下の巻き戻しボタン。字幕の合間に .subtitle が hidden になっても押せるよう、
+  // .subtitle の子にせず直後の兄弟として置く（そのため字幕ホバー一時停止の対象外）。
+  const rewindBar = document.createElement('div');
+  rewindBar.className = 'rewind-bar';
+  if (youtube) rewindBar.style.position = 'absolute';
+  for (const seconds of [5, 10]) {
+    const btn = document.createElement('button');
+    btn.className = 'rewind-btn';
+    btn.textContent = `↺${seconds}`;
+    btn.title = `${seconds}秒戻る`;
+    btn.addEventListener('click', () => callbacks.onRewind?.(seconds));
+    rewindBar.appendChild(btn);
+  }
 
   let bottomPercent = options.bottomPercent;
   const applyBottom = (): void => {
     subtitle.style.bottom = `${bottomPercent}%`;
+    rewindBar.style.setProperty('--sub-bottom', `${bottomPercent}%`);
   };
   const STEP = 6;
   const MIN = 2;
@@ -220,6 +253,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   applyBottom();
 
   shadow.appendChild(subtitle);
+  shadow.appendChild(rewindBar);
 
   // ネイティブ字幕を隠す（テキストは DOM に残るので読み取りは可能）。
   const hideStyle = document.createElement('style');
