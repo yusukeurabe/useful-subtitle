@@ -2,6 +2,7 @@ import { tokenizeLine } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
 import { formatIpaForDisplay } from '../shared/dictionary';
 import { createCloseIcon, createSpeakerButton, createTrashIcon } from './icons';
+import { isYouTube } from './site';
 
 export interface TranscriptEntry {
   /** 行を一意に識別する連番（翻訳の後追い更新に使う）。 */
@@ -118,7 +119,8 @@ function saveReopenPosition(pos: ReopenPosition): void {
 
 const STYLES = `
 .host {
-  position: fixed; top: 0; right: 0; width: 320px; height: 100%;
+  position: fixed; top: var(--us-top-offset, 0px); right: 0; width: 320px;
+  height: calc(100% - var(--us-top-offset, 0px));
   z-index: 2147483000; pointer-events: auto;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
@@ -160,7 +162,7 @@ const STYLES = `
   box-shadow: inset 0 -2px 0 #ffe08a;
 }
 .reopen {
-  position: fixed; top: 8px; right: 8px; z-index: 2147483000;
+  position: fixed; top: calc(var(--us-top-offset, 0px) + 8px); right: 8px; z-index: 2147483000;
   width: 28px; height: 28px; padding: 0;
   display: flex; align-items: center; justify-content: center;
   background: rgba(20,20,20,0.82); color: #fff; border: 1px solid #555;
@@ -265,6 +267,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const setVisible = (visible: boolean): void => {
     panelHost.style.display = visible ? '' : 'none';
     reopen.style.display = visible ? 'none' : '';
+    syncTopOffset();
     if (!visible) clampReopen();
   };
   closeButton.addEventListener('click', () => setVisible(false));
@@ -762,6 +765,17 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const attach = (): void => {
     const target = document.fullscreenElement ?? document.body;
     if (host.parentElement !== target) target.appendChild(host);
+    syncTopOffset();
+  };
+  // YouTube は画面上部に固定ヘッダー（検索・通知ボタン等）があるため、
+  // パネルと☰ボタンをその下から始めて、ヘッダーのボタンを塞がないようにする。
+  // 全画面ではヘッダーが消えるので上端から使う。
+  const syncTopOffset = (): void => {
+    const masthead = isYouTube() && !document.fullscreenElement
+      ? document.querySelector('#masthead-container')
+      : null;
+    const bottom = masthead ? Math.round(masthead.getBoundingClientRect().bottom) : 0;
+    host.style.setProperty('--us-top-offset', `${Math.max(0, bottom)}px`);
   };
   const onFullscreenChange = (): void => attach();
 
@@ -769,6 +783,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     document.removeEventListener('fullscreenchange', onFullscreenChange, true);
     document.removeEventListener('keydown', onHoverKeyDown, true);
     window.removeEventListener('resize', clampReopen);
+    window.removeEventListener('resize', syncTopOffset);
     hideHoverPopup();
     host.remove();
     jaById.clear();
@@ -777,6 +792,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   document.addEventListener('fullscreenchange', onFullscreenChange, true);
   document.addEventListener('keydown', onHoverKeyDown, true);
+  window.addEventListener('resize', syncTopOffset);
   attach();
   const setPageVisible = (visible: boolean): void => {
     host.style.display = visible ? '' : 'none';
