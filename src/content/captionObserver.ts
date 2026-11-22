@@ -1,5 +1,10 @@
 import { pickCaptionText } from './captionExtractor';
-import { CAPTION_TEXT_SELECTORS, PLAYER_CONTAINER_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
+import {
+  CAPTION_TEXT_SELECTORS,
+  PLAYER_CONTAINER_SELECTORS,
+  YOUTUBE_CAPTION_LAYER_SELECTOR,
+  YOUTUBE_CAPTION_SELECTORS,
+} from '../shared/selectors';
 import { extractContentId } from './contentIdentity';
 import { isYouTube, isYouTubeAd, youtubePlayer, youtubeVideoId } from './site';
 
@@ -48,7 +53,9 @@ export function startCaptionObserver(
       player,
     };
     const text = context.active && !context.isAd && !context.captionsOff
-      ? pickCaptionText(document, youtube ? YOUTUBE_CAPTION_SELECTORS : CAPTION_TEXT_SELECTORS)
+      ? youtube
+        ? pickCaptionText(document, YOUTUBE_CAPTION_SELECTORS, { layerSelector: YOUTUBE_CAPTION_LAYER_SELECTOR })
+        : pickCaptionText(document, CAPTION_TEXT_SELECTORS)
       : null;
     if (text !== last || !previous || Object.keys(context).some(
       (key) => context[key as keyof CaptionContext] !== previous![key as keyof CaptionContext],
