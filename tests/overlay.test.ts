@@ -64,6 +64,20 @@ describe('createOverlay — 字幕の頭から再生する▶ボタン', () => {
     expect(seeks).toEqual([42]);
   });
 
+  it('▶クリックで開いている単語ポップアップを閉じてから onSeek を呼ぶ（×を押さなくても消える）', () => {
+    const order: string[] = [];
+    overlay = createOverlay(
+      { ...noopCallbacks(), onSeek: () => order.push(shadow().querySelector('.popup') ? 'seek:open' : 'seek:closed') },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    overlay.renderLine('Hello there.', tokenizeLine('Hello there.'), 42);
+    overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+    expect(shadow().querySelector('.popup')).not.toBeNull();
+    replayBtn()!.click();
+    expect(shadow().querySelector('.popup')).toBeNull();
+    expect(order).toEqual(['seek:closed']);
+  });
+
   it('renderLine を新しい videoTime で呼び直すと▶クリックは新しい時刻でシークする', () => {
     const seeks: number[] = [];
     overlay = createOverlay(
@@ -93,6 +107,107 @@ describe('createOverlay — 字幕の頭から再生する▶ボタン', () => {
     overlay.renderLine('A.', tokenizeLine('A.'), 0);
     replayBtn()!.click();
     expect(seeks).toEqual([0]);
+  });
+});
+
+describe('createOverlay — ポップアップを字幕に被せない', () => {
+  let overlay: Overlay | null = null;
+  let popupHeight = 200;
+  const originalInnerHeight = window.innerHeight;
+  const originalInnerWidth = window.innerWidth;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1200 });
+    popupHeight = 200;
+    // jsdom はレイアウトしないので、ポップアップの寸法だけ与える（maxHeight を付けたらその高さに縮む）。
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        if (!this.classList.contains('popup')) return 0;
+        const max = parseFloat(this.style.maxHeight);
+        return Number.isNaN(max) ? popupHeight : Math.min(popupHeight, max);
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get(this: HTMLElement) { return this.classList.contains('popup') ? 300 : 0; },
+    });
+  });
+
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+    delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalInnerHeight });
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+  });
+
+  /** 字幕枠を top〜bottom（px）に置いた状態で描画する。 */
+  const renderAt = (top: number, bottom: number): void => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.renderLine('First line\nsecond line', tokenizeLine('First line second line'), 0);
+    shadow().querySelector<HTMLElement>('.subtitle')!.getBoundingClientRect =
+      () => new DOMRect(300, top, 600, bottom - top);
+  };
+  const popupBox = (): { top: number; bottom: number; maxHeight: string } => {
+    const popup = shadow().querySelector<HTMLElement>('.popup')!;
+    const top = parseFloat(popup.style.top);
+    return { top, bottom: top + popup.offsetHeight, maxHeight: popup.style.maxHeight };
+  };
+
+  it('字幕の 2 行目の語をクリックしても、字幕枠全体の上に置く（1 行目に被らない）', () => {
+    renderAt(600, 760);
+    // 2 行目の語（字幕枠の途中）。旧実装は語の真上＝ 1 行目に重なっていた。
+    overlay!.openPopup(new DOMRect(500, 680, 60, 30), 'second');
+    const box = popupBox();
+    expect(box.bottom).toBeLessThanOrEqual(600);
+    expect(box.top).toBe(600 - 8 - 200);
+    expect(box.maxHeight).toBe('');
+  });
+
+  it('解説が届いて背が伸びても、字幕の上に置き直す', () => {
+    renderAt(600, 760);
+    overlay!.openPopup(new DOMRect(500, 610, 60, 30), 'First');
+    popupHeight = 420;
+    overlay!.setPopupMeaning('long', []);
+    const box = popupBox();
+    expect(box.bottom).toBeLessThanOrEqual(600);
+    expect(box.top).toBe(600 - 8 - 420);
+  });
+
+  it('字幕の上に入らなければ、字幕の下に置く', () => {
+    renderAt(100, 220);
+    overlay!.openPopup(new DOMRect(500, 110, 60, 30), 'Hello');
+    const box = popupBox();
+    expect(box.top).toBe(220 + 8);
+    expect(box.top).toBeGreaterThanOrEqual(220);
+  });
+
+  it('上下どちらにも入らなければ、広い側に高さを詰めて置く（中はスクロール）', () => {
+    popupHeight = 900;
+    renderAt(400, 560);
+    overlay!.openPopup(new DOMRect(500, 410, 60, 30), 'Hello');
+    const box = popupBox();
+    // 上の余白 400-16=384 より下の余白 1000-560-16=424 の方が広いので、下側に詰める。
+    expect(box.maxHeight).toBe('424px');
+    expect(box.top).toBe(560 + 8);
+    expect(box.bottom).toBeLessThanOrEqual(1000 - 8);
+    expect(shadow().querySelector<HTMLElement>('.popup')!.style.overflowY).toBe('auto');
+  });
+
+  it('次に背の低い内容で置き直したら、詰めた高さを解除する', () => {
+    popupHeight = 900;
+    renderAt(400, 560);
+    overlay!.openPopup(new DOMRect(500, 410, 60, 30), 'Hello');
+    popupHeight = 150;
+    overlay!.setPopupMeaning('short', []);
+    const box = popupBox();
+    expect(box.maxHeight).toBe('');
+    expect(box.bottom).toBeLessThanOrEqual(400);
   });
 });
 

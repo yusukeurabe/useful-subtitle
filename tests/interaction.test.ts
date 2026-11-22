@@ -16,6 +16,7 @@ beforeEach(() => {
   document.body.innerHTML = '<div id="movie_player"></div>';
   overlay = createOverlay({ onLookup() {}, onPlayAudio() {}, onSeek() {} }, { bottomPercent: 10, onBottomChange() {} });
   pending.length = 0;
+  request.mockClear();
   request.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
 });
 afterEach(() => { overlay.destroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -31,16 +32,23 @@ it.each(['open', 'close', 'render', 'clear', 'remount'])(
       overlay.syncMount();
     }
     const fresh = runLookup(overlay, settings, 'word', 'Video B', anchor());
-    pending[2]({ ok: true, kind: 'word', ipa: 'new', audioUrl: 'new.mp3' });
-    pending[3]({ ok: true, text: 'New explanation' });
+    // 1 回の lookup で 辞書(lookupWord) → 単語解説 → 字幕一文の和訳 の順に 3 件送る。
+    pending[3]({ ok: true, kind: 'word', ipa: 'new', audioUrl: 'new.mp3' });
+    pending[4]({ ok: true, text: 'New explanation' });
+    pending[5]({ ok: true, text: '訳: 新しい和訳\n説明: New sentence' });
     await fresh;
+    await Promise.resolve();
     pending[0]({ ok: true, kind: 'word', ipa: 'old', audioUrl: 'old.mp3' });
     pending[1]({ ok: true, text: 'Old explanation' });
+    pending[2]({ ok: true, text: '訳: 古い和訳\n説明: Old sentence' });
     await old;
+    await Promise.resolve();
     const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
     expect(shadow.querySelector('.body')!.textContent).toContain('New explanation');
     expect(shadow.querySelector('.ipa')!.textContent).toContain('new');
+    expect(shadow.querySelector('.sentence .s-trans')!.textContent).toBe('新しい和訳');
     expect(shadow.querySelector('.popup')!.textContent).not.toContain('Old explanation');
+    expect(shadow.querySelector('.popup')!.textContent).not.toContain('古い和訳');
   },
 );
 
@@ -48,6 +56,7 @@ it.each(['close', 'render', 'clear', 'remount', 'leave', 'destroy'])(
   'does not apply pending explanation or IPA after popup invalidation by %s', async (action) => {
     const meaning = vi.spyOn(overlay, 'setPopupMeaning');
     const word = vi.spyOn(overlay, 'setPopupWordInfo');
+    const sentence = vi.spyOn(overlay, 'setPopupSentence');
     const lookup = runLookup(overlay, settings, 'word', 'Video A', anchor());
     if (action === 'close') overlay.hidePopup();
     if (action === 'render') overlay.renderLine('Next caption', [], 1);
@@ -63,8 +72,50 @@ it.each(['close', 'render', 'clear', 'remount', 'leave', 'destroy'])(
     if (action === 'destroy') overlay.destroy();
     pending[0]({ ok: true, kind: 'word', ipa: 'old', audioUrl: 'old.mp3' });
     pending[1]({ ok: true, text: 'Old explanation' });
+    pending[2]({ ok: true, text: '訳: 古い和訳' });
     await lookup;
+    await Promise.resolve();
     expect(meaning).not.toHaveBeenCalled();
     expect(word).not.toHaveBeenCalled();
+    // 取得中表示（null）だけで、結果は反映しない。
+    expect(sentence.mock.calls).toEqual([[null]]);
   },
 );
+
+it('ポップアップ下段に、いま表示中の字幕一文の和訳と解説を出す（字幕一覧と同じ explainSentence）', async () => {
+  const lookup = runLookup(overlay, settings, 'run', 'I run every day.', anchor());
+  expect(request).toHaveBeenCalledWith({ type: 'explainSentence', text: 'I run every day.' });
+  const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
+  const section = shadow.querySelector<HTMLDivElement>('.popup .sentence')!;
+  expect(section.hidden).toBe(false);
+  expect(section.textContent).toContain('Thinking');
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1]({ ok: true, text: 'V[I]: 走る\n説明: 走ること' });
+  pending[2]({ ok: true, text: '訳: 私は毎日走る。\n説明: 習慣を表す現在形。' });
+  await lookup;
+  await Promise.resolve();
+  expect(section.querySelector('.s-label')!.textContent).toBe('和訳');
+  expect(section.querySelector('.s-trans')!.textContent).toBe('私は毎日走る。');
+  expect(section.querySelector('.s-expl')!.textContent).toBe('習慣を表す現在形。');
+});
+
+it('字幕一文の取得に失敗したら下段にエラーを出す', async () => {
+  const lookup = runLookup(overlay, settings, 'run', 'I run.', anchor());
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1]({ ok: true, text: 'V[I]: 走る' });
+  pending[2]({ ok: false, error: '取得に失敗しました' });
+  await lookup;
+  await Promise.resolve();
+  const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
+  expect(shadow.querySelector('.popup .sentence .err')!.textContent).toBe('取得に失敗しました');
+});
+
+it('字幕一文が空なら和訳を頼まず下段も出さない', async () => {
+  const lookup = runLookup(overlay, settings, 'run', '', anchor());
+  expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'explainSentence' }));
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1]({ ok: true, text: 'V[I]: 走る' });
+  await lookup;
+  const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
+  expect(shadow.querySelector<HTMLDivElement>('.popup .sentence')!.hidden).toBe(true);
+});
