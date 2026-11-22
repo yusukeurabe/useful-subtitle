@@ -51,10 +51,14 @@ export interface TranscriptPanelCallbacks {
    * resume=false は履歴の全消去でポップアップを閉じたときで、再開はしない。
    */
   onHoverEnd?: (opts: { resume: boolean }) => void;
+  /** パネルが開いた／閉じたとき（Close・☰・toggleOpen のどれでも）。字幕下の開閉ボタンの点灯用。 */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export interface TranscriptPanel {
   setVisible(visible: boolean): void;
+  /** パネルを開閉する（開いていれば閉じ、閉じていれば開く）。setVisible（ページ単位の出し入れ）とは別。 */
+  toggleOpen(): void;
   /** 同じ ID は英文を更新し、行の位置と開始時刻を維持する。 */
   append(entry: TranscriptEntry): void;
   setTranslation(id: number, japanese: string, expectedEnglish?: string): void;
@@ -297,12 +301,17 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   // 動画を開いただけでは自動で開かず、再表示ボタン（☰）を押したときだけパネルを開く。
   panelHost.style.display = 'none';
 
+  let open = false;
   const setVisible = (visible: boolean): void => {
     panelHost.style.display = visible ? '' : 'none';
     reopen.style.display = visible ? 'none' : '';
     if (!visible) leavePanel();
     syncTopOffset();
     if (!visible) clampReopen();
+    if (open !== visible) {
+      open = visible;
+      cb.onOpenChange?.(visible);
+    }
   };
   closeButton.addEventListener('click', () => setVisible(false));
 
@@ -988,5 +997,13 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const setPageVisible = (visible: boolean): void => {
     host.style.display = visible ? '' : 'none';
   };
-  return { append, setTranslation, updateActiveByTime, clear, setVisible: setPageVisible, destroy };
+  return {
+    append,
+    setTranslation,
+    updateActiveByTime,
+    clear,
+    setVisible: setPageVisible,
+    toggleOpen: () => setVisible(!open),
+    destroy,
+  };
 }

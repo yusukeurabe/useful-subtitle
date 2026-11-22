@@ -46,6 +46,8 @@ async function main(): Promise<void> {
       onSeek: seekVideo,
       onRewind: rewindVideo,
       onTogglePlay: togglePlayVideo,
+      // 字幕リストが有効なときだけ、字幕下に開閉ボタンを出す。
+      onToggleTranscript: settings.showTranscriptPanel ? () => panel?.toggleOpen() : undefined,
       onHoverStart: () => hoverPause?.start(),
       onHoverEnd: (opts) => hoverPause?.end(opts),
     },
@@ -107,6 +109,8 @@ async function main(): Promise<void> {
         // 履歴パネルに乗せている間も、字幕ホバーと同じ設定・仕組みで一時停止する。
         onHoverStart: () => hoverPause?.start(),
         onHoverEnd: (opts) => hoverPause?.end(opts),
+        // 開閉のたびに、字幕下の開閉ボタンの点灯を合わせる。
+        onOpenChange: (open) => overlay.setTranscriptOpen(open),
       })
     : null;
   panel?.setVisible(!youtube);
