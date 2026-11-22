@@ -28,6 +28,32 @@ export function createCloseIcon(size = 14): SVGSVGElement {
   return createLineIcon(size, ['M6 6l12 12', 'M18 6L6 18']);
 }
 
+/** 再生/一時停止ボタン用の再生アイコン（塗りつぶしの右向き三角）。 */
+export function createPlayIcon(size = 16): SVGSVGElement {
+  return createFilledIcon(size, ['M7 4.5v15l12.5-7.5z']);
+}
+
+/** 再生/一時停止ボタン用の一時停止アイコン（塗りつぶしの縦棒2本）。 */
+export function createPauseIcon(size = 16): SVGSVGElement {
+  return createFilledIcon(size, ['M6 4.5h4v15H6z', 'M14 4.5h4v15h-4z']);
+}
+
+/** 24x24 の塗りつぶしアイコンを作る共通処理。色は currentColor に従う。 */
+function createFilledIcon(size: number, paths: string[]): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
 /** 24x24 の線画アイコンを作る共通処理。色は currentColor に従う。 */
 function createLineIcon(size: number, paths: string[]): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
