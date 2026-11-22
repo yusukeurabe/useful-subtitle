@@ -12,7 +12,7 @@
 |---|---|
 | 配置 | 字幕の真下・中央に「↺5」「↺10」を横並び。字幕下端とのすき間は約 4px |
 | 位置の追従 | 字幕を ▲▼・つまみで動かすと一緒に動く |
-| 字幕が消えている間 | ボタンは同じ場所に残る（セリフ直後の「聞き逃した」に押せるように） |
+| 字幕が消えている間 | 最初の字幕（`renderLine`）が出てから表示し、以降は字幕の合間も同じ場所に残る（セリフ直後の「聞き逃した」に押せるように）。最初の字幕までは隠すので Prime のホーム・詳細ページには出ない |
 | 見た目 | 普段はうっすら（不透明度 0.35）。字幕かボタンにカーソルを乗せると 0.9 |
 | 押した後 | 現在位置から 5/10 秒前へ移動して再生する（0 秒未満は 0 秒）。既存の ▶・履歴クリックと同じ `seekVideo` の再生処理を使う |
 | 対象 | Prime Video と YouTube。全画面でも表示（既存オーバーレイのマウントに乗る） |
@@ -30,7 +30,9 @@
 - YouTube では字幕と同じく `position: absolute`（ホストがプレイヤー内に absolute で入るため）。
 - 見た目: 既存の `.pos-btn` と同系（黒 60% 背景・白文字・角丸 6px・ホバーで青）。ボタンは幅 auto、高さ 32px。
   不透明度は `.rewind-bar { opacity: 0.35 }`、`.subtitle:hover ~ .rewind-bar, .rewind-bar:hover { opacity: 0.9 }`。
-- ボタン: `↺5`（title「5秒戻る」）、`↺10`（title「10秒戻る」）。クリックで `callbacks.onRewind(5 | 10)`。
+- 表示: `.rewind-bar` は `hidden` で作り、`renderLine` で `hidden = false`。`clearLine` では隠さない。`display: flex` が `hidden` に勝つので `.rewind-bar[hidden] { display: none; }` を足す。
+- ボタン: `↺5`（title「5秒戻る」）、`↺10`（title「10秒戻る」）。クリックで開いている単語ポップアップを `hidePopup(false)` で閉じてから `callbacks.onRewind(5 | 10)`。
+  `mousedown` で `preventDefault()` してフォーカスを取らない（取ると押した後の Space で一時停止のつもりがボタンが再度押される）。
 - `OverlayCallbacks` に `onRewind?: (seconds: number) => void` を追加（任意。未指定なら何もしない）。
 
 ### `src/content/videoControl.ts`
@@ -51,7 +53,7 @@
 ## テスト
 
 - `tests/videoControl.test.ts`: `rewindVideo(5)` で `currentTime` が 5 秒減って play が呼ばれる／0 秒未満は 0／動画無しで例外なし。
-- `tests/overlay.test.ts`: `.rewind-bar` に 2 ボタンがあり、クリックで `onRewind(5)`・`onRewind(10)`／`clearLine` 後もバーが表示されたまま／▲▼で字幕を動かすとバーの `bottom` も更新される。
+- `tests/overlay.test.ts`: `.rewind-bar` に 2 ボタンがあり、クリックで `onRewind(5)`・`onRewind(10)`／作成直後は隠れていて `renderLine` で表示、`clearLine` 後も表示されたまま（`[hidden]` で `display: none` の CSS あり）／`mousedown` の既定動作を止める／クリックで単語ポップアップが閉じる／▲▼で字幕を動かすとバーの `bottom` も更新される。
 - `tests/youtube.test.ts`: YouTube では `.rewind-bar` が `position: absolute`。
 
 ## バージョン

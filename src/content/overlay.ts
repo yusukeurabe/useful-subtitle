@@ -164,6 +164,8 @@ const STYLES = `
   display: flex; gap: 6px; pointer-events: auto;
   opacity: 0.35; transition: opacity 0.2s;
 }
+/* display: flex が hidden 属性の UA スタイルに勝つので、hidden で消えるよう明示する。 */
+.rewind-bar[hidden] { display: none; }
 .subtitle:hover ~ .rewind-bar, .rewind-bar:hover { opacity: 0.9; }
 .rewind-btn {
   height: 32px; min-width: 44px; padding: 0 8px; border-radius: 6px; border: none;
@@ -205,15 +207,23 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   subtitle.append(original, translation);
   // 字幕の真下の巻き戻しボタン。字幕の合間に .subtitle が hidden になっても押せるよう、
   // .subtitle の子にせず直後の兄弟として置く（そのため字幕ホバー一時停止の対象外）。
+  // 最初の字幕（renderLine）が出るまでは隠す（Prime のホームや詳細ページで出さないため）。
   const rewindBar = document.createElement('div');
   rewindBar.className = 'rewind-bar';
+  rewindBar.hidden = true;
   if (youtube) rewindBar.style.position = 'absolute';
   for (const seconds of [5, 10]) {
     const btn = document.createElement('button');
     btn.className = 'rewind-btn';
     btn.textContent = `↺${seconds}`;
     btn.title = `${seconds}秒戻る`;
-    btn.addEventListener('click', () => callbacks.onRewind?.(seconds));
+    // クリックでフォーカスを取らない（取ると、押した後の Space で一時停止のつもりが再度押される）。
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', () => {
+      // 開いている単語ポップアップは閉じる。再開は巻き戻し側の再生に任せる。
+      hidePopup(false);
+      callbacks.onRewind?.(seconds);
+    });
     rewindBar.appendChild(btn);
   }
 
@@ -345,6 +355,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   function renderLine(sentence: string, tokens: Token[], videoTime: number): void {
     subtitle.hidden = false;
+    // 一度出したら clearLine でも隠さない（字幕の合間にも押せるようにするため）。
+    rewindBar.hidden = false;
     currentSentence = sentence;
     currentLineVideoTime = videoTime;
     // 次の字幕で閉じても再開はしない（ホバー停止中に字幕が描き直された場合に

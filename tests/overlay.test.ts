@@ -522,9 +522,49 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
 
   it('字幕の直後に置かれ、字幕の子ではない（字幕が消えても残るため）', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(bar()).not.toBeNull();
     const subtitle = shadow().querySelector<HTMLElement>('.subtitle')!;
     expect(subtitle.contains(bar())).toBe(false);
     expect(subtitle.nextElementSibling).toBe(bar());
+  });
+
+  it('最初の字幕が出るまでは隠れている（Prime のホームや詳細ページで出さない）', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(bar().hidden).toBe(true);
+  });
+
+  it('renderLine で表示される', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 0);
+    expect(bar().hidden).toBe(false);
+  });
+
+  it('hidden のときは CSS で非表示になる（display: flex に負けない）', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const css = shadow().querySelector('style')!.textContent ?? '';
+    expect(css).toMatch(/\.rewind-bar\[hidden\]\s*\{\s*display:\s*none;?\s*\}/);
+  });
+
+  it('mousedown の既定動作を止め、クリックでフォーカスを取らない（Space で再度押されないため）', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    for (const btn of buttons()) {
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      btn.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    }
+  });
+
+  it('クリックで開いている単語ポップアップを閉じてから onRewind を呼ぶ', () => {
+    const rewinds: number[] = [];
+    overlay = createOverlay(
+      { ...noopCallbacks(), onRewind: (s) => rewinds.push(s) },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+    expect(shadow().querySelector('.popup')).not.toBeNull();
+    buttons()[0].click();
+    expect(shadow().querySelector('.popup')).toBeNull();
+    expect(rewinds).toEqual([5]);
   });
 
   it('clearLine で字幕が隠れてもバーは表示されたまま', () => {
