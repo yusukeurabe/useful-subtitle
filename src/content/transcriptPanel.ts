@@ -702,7 +702,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   // --- 行の「単語以外の場所」へのホバーで、和訳＋解説を英文の下に差し込む ---
   // 単語の上は従来どおり単語ポップアップ。ここでは行の余白・語間・短い行の右側の空きなど
   // 単語以外に ROW_DWELL_MS 留まったときだけ発火し、出した表示は行から離れても残す。
-  const ROW_DWELL_MS = 500;
+  const ROW_DWELL_MS = 700; // 単語ポップアップ（500ms）より少し長く待ち、通りがかりで出ないようにする
   let rowDwellRow: HTMLDivElement | null = null;
   let rowDwellTimer: ReturnType<typeof setTimeout> | undefined;
 

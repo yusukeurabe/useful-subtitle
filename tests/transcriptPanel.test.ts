@@ -1048,7 +1048,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     return row.querySelector<HTMLDivElement>('.row-meaning');
   }
 
-  it('単語以外に 500ms 置くと onExplain が英文で呼ばれ、和訳と解説が行の末尾に出る', async () => {
+  it('単語以外に 700ms 置くと onExplain が英文で呼ばれ、和訳と解説が行の末尾に出る', async () => {
     const calls: string[] = [];
     const onSeek = vi.fn();
     panel = createTranscriptPanel({
@@ -1062,7 +1062,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     const row = rowsOf()[0];
 
     move(enOf(row)); // 語間（テキストノード上）は対象が .en になる
-    await vi.advanceTimersByTimeAsync(499);
+    await vi.advanceTimersByTimeAsync(699);
     expect(calls).toEqual([]);
     expect(meaningOf(row)).toBeNull();
     await vi.advanceTimersByTimeAsync(1);
@@ -1087,7 +1087,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
     const row = rowsOf()[0];
     move(row);
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
 
     expect(meaningOf(row)!.querySelector('.rm-body.loading')!.textContent).toBe('Thinking…');
     resolve({ ok: true, translation: 'やあ', explanation: '' });
@@ -1121,7 +1121,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     expect(meaningOf(row)).toBeNull();
   });
 
-  it('500ms 前に単語へ移る／行を離れるとドウェルは取り消される', async () => {
+  it('700ms 前に単語へ移る／行を離れるとドウェルは取り消される', async () => {
     const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: 'y' });
     panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
@@ -1130,17 +1130,17 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     move(enOf(row));
     await vi.advanceTimersByTimeAsync(300);
     move(wordsOf(row)[0]);
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).not.toHaveBeenCalled();
 
     move(enOf(row));
     await vi.advanceTimersByTimeAsync(300);
     row.dispatchEvent(new Event('mouseleave'));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).not.toHaveBeenCalled();
   });
 
-  it('同じ行の単語以外を移動してもドウェルは張り直さない（最初の位置から 500ms で出る）', async () => {
+  it('同じ行の単語以外を移動してもドウェルは張り直さない（最初の位置から 700ms で出る）', async () => {
     const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: 'y' });
     panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
@@ -1149,7 +1149,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     move(row);
     await vi.advanceTimersByTimeAsync(300);
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(400);
     expect(onExplain).toHaveBeenCalledTimes(1);
   });
 
@@ -1160,7 +1160,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     const row = rowsOf()[0];
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     row.dispatchEvent(new Event('mouseleave'));
     await vi.advanceTimersByTimeAsync(1000);
     expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('残る和訳');
@@ -1179,12 +1179,12 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     const row = rowsOf()[0];
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(meaningOf(row)!.querySelector('.rm-body.err')!.textContent).toBe('取得できませんでした');
 
     row.dispatchEvent(new Event('mouseleave'));
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(2);
     expect(row.querySelectorAll('.row-meaning')).toHaveLength(1);
     expect(meaningOf(row)!.querySelector('.err')).toBeNull();
@@ -1198,7 +1198,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     const row = rowsOf()[0];
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(1);
     expect(meaningOf(row)!.querySelector('.rm-body.err')).not.toBeNull();
 
@@ -1213,7 +1213,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
 
     row.dispatchEvent(new Event('mouseleave'));
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(2);
   });
 
@@ -1230,7 +1230,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     expect(shadow().querySelector('.hover-popup')).not.toBeNull();
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(1);
     expect(meaningOf(row)!.querySelector('.rm-body.loading')).not.toBeNull();
 
@@ -1242,7 +1242,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     // 決着後は共有が外れ、別の要求は改めて onExplain に届く
     panel.append({ id: 2, english: 'Break a leg!', videoTime: 2 });
     move(enOf(rowsOf()[1]));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(2);
   });
 
@@ -1255,7 +1255,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     const spy = vi.spyOn(globalThis, 'setTimeout');
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).toHaveBeenCalledTimes(1);
 
     spy.mockClear();
@@ -1276,7 +1276,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
     const row = rowsOf()[0];
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(meaningOf(row)!.querySelector('.rm-body.err')!.textContent).toBe('和訳を取得できませんでした。');
   });
 
@@ -1289,7 +1289,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.setTranslation(1, 'やあ、そこの人');
     const row = rowsOf()[0];
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
 
     expect(meaningOf(row)!.querySelector('.rm-trans')).toBeNull();
     expect(meaningOf(row)!.querySelector('.rm-expl')!.textContent).toBe('補足の解説');
@@ -1302,7 +1302,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.setTranslation(1, '既存');
     const row = rowsOf()[0];
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(meaningOf(row)).toBeNull();
 
     row.dispatchEvent(new Event('mouseleave'));
@@ -1325,7 +1325,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.append({ id: 1, english: 'Good', videoTime: 1 });
     const row = rowsOf()[0];
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(meaningOf(row)).not.toBeNull();
 
     panel.append({ id: 1, english: 'Good morning', videoTime: 1 });
@@ -1335,7 +1335,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     expect(meaningOf(row)).toBeNull();
 
     move(enOf(row));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(calls).toEqual(['Good', 'Good morning']);
     resolvers[1]({ ok: true, translation: 'おはよう', explanation: '' });
     await vi.advanceTimersByTimeAsync(0);
@@ -1349,7 +1349,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     move(enOf(rowsOf()[0]));
     await vi.advanceTimersByTimeAsync(300);
     panel.append({ id: 1, english: 'Good morning', videoTime: 1 });
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).not.toHaveBeenCalled();
   });
 
@@ -1362,7 +1362,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
     const oldRow = rowsOf()[0];
     move(enOf(oldRow));
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
 
     panel.clear();
     expect(rowsOf()).toHaveLength(0);
@@ -1382,7 +1382,7 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     await vi.advanceTimersByTimeAsync(300);
     panel.clear();
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 }); // 同じ id で作り直す
-    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(700);
     expect(onExplain).not.toHaveBeenCalled();
     expect(meaningOf(rowsOf()[0])).toBeNull();
   });
