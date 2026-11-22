@@ -611,7 +611,7 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
 
   const bar = (): HTMLElement => shadow().querySelector<HTMLElement>('.rewind-bar')!;
   const buttons = (): HTMLButtonElement[] =>
-    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn')];
+    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn:not(.play-toggle)')];
 
   it('↺5 と ↺10 のボタンが並ぶ', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
@@ -619,19 +619,75 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     expect(buttons().map((b) => b.title)).toEqual(['5秒戻る', '10秒戻る']);
   });
 
-  it('↺5 と ↺10 は隣同士で、その右隣（画面中央）に字幕位置のつまみが置かれる', () => {
+  it('↺5・↺10・再生/一時停止・字幕位置のつまみの順に並ぶ', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     const kids = [...bar().children] as HTMLElement[];
-    expect(kids.map((k) => k.textContent)).toEqual(['↺5', '↺10', '⠿']);
-    expect(kids[2].classList.contains('pos-handle')).toBe(true);
-    expect(kids[2].title).toBe('ドラッグで字幕を上下に移動');
+    expect(kids.map((k) => k.textContent)).toEqual(['↺5', '↺10', '', '⠿']);
+    expect(kids[2].classList.contains('play-toggle')).toBe(true);
+    expect(kids[3].classList.contains('pos-handle')).toBe(true);
+    expect(kids[3].title).toBe('ドラッグで字幕を上下に移動');
   });
 
-  it('つまみの中心が画面中央に来るよう、バーの右端を 50% + つまみ幅の半分に合わせる', () => {
+  it('再生/一時停止ボタンの中心が画面中央に来るよう、バーの右端を 50% + 56px に合わせる', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     const css = shadow().querySelector('style')!.textContent ?? '';
+    // 56 = ボタン幅 44 の半分 22 + すき間 6 + つまみ幅 28
     expect(css).toMatch(/\.rewind-bar \.bar-handle\s*\{[^}]*width:\s*28px/);
-    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 14px\)\)/);
+    expect(css).toMatch(/\.play-toggle\s*\{[^}]*width:\s*44px/);
+    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*gap:\s*6px/);
+    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 56px\)\)/);
+  });
+
+  describe('再生/一時停止ボタン', () => {
+    const toggle = (): HTMLButtonElement => bar().querySelector<HTMLButtonElement>('.play-toggle')!;
+
+    it('初期状態は再生中とみなし、一時停止ボタンとして表示する', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      expect(toggle().title).toBe('一時停止');
+      expect(toggle().getAttribute('aria-label')).toBe('一時停止');
+      expect(toggle().querySelectorAll('svg path')).toHaveLength(2);
+    });
+
+    it('setPlaying(false) で再生ボタン、setPlaying(true) で一時停止ボタンに切り替わる', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      overlay.setPlaying(false);
+      expect(toggle().title).toBe('再生');
+      expect(toggle().querySelectorAll('svg path')).toHaveLength(1);
+      overlay.setPlaying(true);
+      expect(toggle().title).toBe('一時停止');
+      expect(toggle().querySelectorAll('svg path')).toHaveLength(2);
+    });
+
+    it('クリックで onTogglePlay が呼ばれ、巻き戻しは呼ばれない', () => {
+      let toggles = 0;
+      const rewinds: number[] = [];
+      overlay = createOverlay(
+        { ...noopCallbacks(), onTogglePlay: () => toggles++, onRewind: (s) => rewinds.push(s) },
+        { bottomPercent: 10, onBottomChange: () => {} },
+      );
+      toggle().click();
+      expect(toggles).toBe(1);
+      expect(rewinds).toEqual([]);
+    });
+
+    it('onTogglePlay 未指定でもクリックで例外を出さない', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      expect(() => toggle().click()).not.toThrow();
+    });
+
+    it('mousedown の既定動作を止め、クリックでフォーカスを取らない', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      toggle().dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('クリックで開いている単語ポップアップを閉じる', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+      toggle().click();
+      expect(shadow().querySelector('.popup')).toBeNull();
+    });
   });
 
   describe('下のつまみのドラッグ', () => {

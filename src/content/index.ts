@@ -9,7 +9,7 @@ import { createTranscriptRecorder, createRollingTranscriptRecorder } from './tra
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { fetchWordInfo } from './word';
-import { findVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo } from './videoControl';
+import { findVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo } from './videoControl';
 import { createHoverPause } from './hoverPause';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
@@ -45,6 +45,7 @@ async function main(): Promise<void> {
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
       onSeek: seekVideo,
       onRewind: rewindVideo,
+      onTogglePlay: togglePlayVideo,
       onHoverStart: () => hoverPause?.start(),
       onHoverEnd: (opts) => hoverPause?.end(opts),
     },
@@ -53,6 +54,17 @@ async function main(): Promise<void> {
       onBottomChange: (percent) => void saveSettingsQuietly({ subtitleBottomPercent: percent }),
     },
   );
+
+  // 字幕下の再生/一時停止ボタンの見た目を本編 video の状態に合わせる。
+  // Prime 自身の操作・Space キー・字幕ホバー停止など、どこで切り替わっても追従させる。
+  // メディアイベントはバブリングしないため document のキャプチャ段で受ける。
+  const syncPlayToggle = (): void => {
+    const video = findVideo();
+    if (video) overlay.setPlaying(!video.paused);
+  };
+  for (const ev of ['play', 'playing', 'pause', 'ended', 'loadstart'] as const) {
+    document.addEventListener(ev, syncPlayToggle, true);
+  }
 
   // 履歴への重複記録を防ぐ記録ポリシー。履歴クリックや再生バーで過去へ巻き戻して
   // 記録済み範囲を再生し直す間は記録せず、記録済み地点を追い越したら記録を再開する。
@@ -187,6 +199,7 @@ async function main(): Promise<void> {
     // 履歴記録の両方で同じ値を使う（クリック先がブレないように）。
     const videoTime = findVideo()?.currentTime ?? 0;
     overlay.renderLine(text, tokenizeLine(text), videoTime);
+    syncPlayToggle();
 
     // 巻き戻して記録済み範囲を再生し直している間は履歴へ重複記録しない。
     // 画面上の字幕・翻訳（overlay）は再視聴中も従来どおり表示する。

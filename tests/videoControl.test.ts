@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { pickBestVideo, resumeVideo, rewindVideo, seekVideo, type VideoLike } from '../src/content/videoControl';
+import { pickBestVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo, type VideoLike } from '../src/content/videoControl';
 
 /** 既定は「停止中・未再生・未描画」のダミー。必要な項目だけ上書きする。 */
 const v = (o: Partial<VideoLike>): VideoLike => ({
@@ -227,5 +227,50 @@ describe('resumeVideo — 停止中の video を再生し直す', () => {
     cancel();
     vi.advanceTimersByTime(200);
     expect(clickSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('togglePlayVideo — 停止中なら再生、再生中なら一時停止', () => {
+  let video: HTMLVideoElement;
+  let paused: boolean;
+  let playSpy: ReturnType<typeof vi.fn>;
+  let pauseSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.replaceChildren();
+    paused = true;
+    video = document.createElement('video');
+    Object.defineProperty(video, 'paused', { configurable: true, get: () => paused });
+    playSpy = vi.fn(() => { paused = false; return Promise.resolve(); });
+    pauseSpy = vi.fn(() => { paused = true; });
+    video.play = playSpy as unknown as HTMLVideoElement['play'];
+    video.pause = pauseSpy as unknown as HTMLVideoElement['pause'];
+    document.body.appendChild(video);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.replaceChildren();
+  });
+
+  it('停止中なら再生する', () => {
+    togglePlayVideo();
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    expect(pauseSpy).not.toHaveBeenCalled();
+  });
+
+  it('再生中なら一時停止する', () => {
+    paused = false;
+    togglePlayVideo();
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+
+  it('video が無ければ何もしない', () => {
+    document.body.replaceChildren();
+    expect(() => togglePlayVideo()).not.toThrow();
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(pauseSpy).not.toHaveBeenCalled();
   });
 });

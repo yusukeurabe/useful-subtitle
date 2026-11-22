@@ -132,3 +132,14 @@ export function rewindVideo(seconds: number): void {
   const v = findVideo();
   if (v) seekElement(v, v.currentTime - seconds);
 }
+
+/**
+ * 停止中なら再生し、再生中なら一時停止する（字幕下の再生/一時停止ボタン用）。
+ * 再生は resumeVideo を使う（Prime が生の play() を握り潰す場合に備えるため）。
+ */
+export function togglePlayVideo(): void {
+  const v = findVideo();
+  if (!v) return;
+  if (v.paused) resumeVideo(v);
+  else v.pause();
+}

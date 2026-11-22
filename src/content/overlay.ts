@@ -3,7 +3,7 @@ import type { Token } from '../shared/tokenize';
 import type { WordSense } from '../shared/explanation';
 import { CAPTION_TEXT_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
 import { cambridgeUrl, formatIpaForDisplay } from '../shared/dictionary';
-import { createSpeakerButton } from './icons';
+import { createPauseIcon, createPlayIcon, createSpeakerButton } from './icons';
 
 export interface OverlayCallbacks {
   /** 単語クリック or フレーズ選択が確定したとき。anchor は対象語のビューポート座標。 */
@@ -14,6 +14,8 @@ export interface OverlayCallbacks {
   onSeek: (videoTime: number) => void;
   /** 字幕下の巻き戻しボタン（↺5 / ↺10）が押されたとき。引数は戻す秒数。 */
   onRewind?: (seconds: number) => void;
+  /** 字幕下の再生/一時停止ボタンが押されたとき。 */
+  onTogglePlay?: () => void;
   /** 字幕枠にカーソルが入ったとき（字幕ホバーで一時停止用）。 */
   onHoverStart?: () => void;
   /**
@@ -53,6 +55,8 @@ export interface Overlay {
   /** ポップアップ下段（字幕一文の和訳＋解説）を描画する。呼ぶまでは下段を出さない。 */
   setPopupSentence(meaning: PopupSentenceMeaning): void;
   hidePopup(): void;
+  /** 字幕下の再生/一時停止ボタンの見た目を動画の状態に合わせる（true＝再生中）。 */
+  setPlaying(playing: boolean): void;
   syncMount(): void;
   destroy(): void;
 }
@@ -171,10 +175,12 @@ const STYLES = `
 /* 字幕の真下に置く巻き戻しボタン。.subtitle の外の別要素なので字幕が消えても残る。
    --sub-bottom は字幕の bottom（%）。36px = ボタン高さ 32px + すき間 4px で、
    字幕を一番下まで下げたときは 4px で止まり字幕に少し重なる。
-   右端のつまみ（幅 28px）の中心を画面中央に置くため、バーの右端を 50% + 14px に合わせる
-   （= 自分の幅だけ左へずらして 14px 戻す）。つまみの幅を変えたら 14px も合わせること。 */
+   並びは [↺5][↺10][再生/一時停止][つまみ]。再生/一時停止ボタン（幅 44px）の中心を
+   画面中央に置くため、バーの右端を 50% + 56px に合わせる（= 自分の幅だけ左へずらして
+   56px 戻す。56 = ボタン幅の半分 22 + すき間 6 + つまみ幅 28）。
+   ボタン幅・すき間・つまみ幅のどれかを変えたら 56px も合わせること。 */
 .rewind-bar {
-  position: fixed; left: 50%; transform: translateX(calc(-100% + 14px));
+  position: fixed; left: 50%; transform: translateX(calc(-100% + 56px));
   bottom: max(4px, calc(var(--sub-bottom) - 36px));
   display: flex; gap: 6px; pointer-events: auto;
   opacity: 0.35; transition: opacity 0.2s;
@@ -189,7 +195,12 @@ const STYLES = `
   cursor: pointer;
 }
 .rewind-btn:hover { background: rgba(86, 156, 255, 0.85); }
-/* 巻き戻しボタンの右隣（画面中央）に置く字幕位置のつまみ。ボタンと高さをそろえる。 */
+/* 画面中央の再生/一時停止ボタン。アイコンの切り替えで幅が変わらないよう固定幅にする。 */
+.play-toggle {
+  width: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* 再生/一時停止ボタンの右隣（中央より少し右）に置く字幕位置のつまみ。ボタンと高さをそろえる。 */
 .rewind-bar .bar-handle { width: 28px; height: 32px; line-height: 32px; }
 `;
 
@@ -252,12 +263,32 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     handle.addEventListener('pointerdown', (e) => startPosDrag(e));
     return handle;
   };
-  // 右側のつまみと同じものをバーの右端に置き、CSS でつまみの中心を画面中央に合わせる
-  // （巻き戻しボタンはその左隣に並ぶ）。バーは --sub-bottom で字幕に付いて動くので、
-  // ドラッグ中もつまみがカーソルに追従する。
+  // 再生/一時停止のトグルボタン。CSS でこのボタンの中心を画面中央に合わせる。
+  // アイコンは setPlaying で動画の状態に合わせる（初期は再生中＝一時停止アイコン）。
+  const playToggle = document.createElement('button');
+  playToggle.className = 'rewind-btn play-toggle';
+  let playing: boolean | null = null;
+  const setPlaying = (next: boolean): void => {
+    if (playing === next) return;
+    playing = next;
+    const label = next ? '一時停止' : '再生';
+    playToggle.title = label;
+    playToggle.setAttribute('aria-label', label);
+    playToggle.replaceChildren(next ? createPauseIcon() : createPlayIcon());
+  };
+  setPlaying(true);
+  // 巻き戻しボタンと同じく、クリックでフォーカスを取らない（Space で再度押されないため）。
+  playToggle.addEventListener('mousedown', (e) => e.preventDefault());
+  playToggle.addEventListener('click', () => {
+    // 開いている単語ポップアップは閉じる（閉じるときに再生を再開しない）。
+    hidePopup(false);
+    callbacks.onTogglePlay?.();
+  });
+  // 右側のつまみと同じものを再生/一時停止ボタンの右隣に置く（中央より少し右になる）。
+  // バーは --sub-bottom で字幕に付いて動くので、ドラッグ中もつまみがカーソルに追従する。
   const barHandle = makePosHandle();
   barHandle.classList.add('bar-handle');
-  rewindBar.append(makeRewindBtn(5), makeRewindBtn(10), barHandle);
+  rewindBar.append(makeRewindBtn(5), makeRewindBtn(10), playToggle, barHandle);
 
   let bottomPercent = options.bottomPercent;
   const applyBottom = (): void => {
@@ -825,6 +856,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     setPopupWordInfo,
     setPopupSentence,
     hidePopup: () => hidePopup(),
+    setPlaying,
     syncMount: attach,
     destroy,
   };
