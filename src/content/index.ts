@@ -137,7 +137,14 @@ async function main(): Promise<void> {
     for (const ev of ['timeupdate', 'seeked'] as const) {
       document.addEventListener(ev, syncActiveRow, true);
     }
-    if (youtube) document.addEventListener('seeking', () => rollingRecorder.breakSequence(), true);
+    // シークで視聴済み区間を区切る。先へ飛ばした区間を「見た」と扱わないため、
+    // 後で戻って見たときに記録される（Prime・YouTube 共通）。広告・プレビュー等の
+    // 別 video のシークで本編の区間を細切れにしないよう、本編 video のシークだけを見る。
+    document.addEventListener('seeking', (e) => {
+      if (e.target !== findVideo()) return;
+      recorder.breakRange();
+      rollingRecorder.breakSequence();
+    }, true);
   }
 
   // 広告復帰直後に同じ字幕を履歴へ二重記録しないため、直近の字幕を保持する。

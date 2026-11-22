@@ -44,6 +44,24 @@ describe('createTranscriptRecorder — 履歴へ記録すべきかの判定', ()
     expect(r.shouldRecord(10)).toBe(false);
   });
 
+  it('先へ飛ばした後に、飛ばした区間へ戻って見た字幕は記録する（回帰: リストに出ない）', () => {
+    const r = createTranscriptRecorder();
+    [5, 8].forEach((t) => r.shouldRecord(t)); // 冒頭を少し視聴
+    r.breakRange(); // シークバーで先へ飛ばす
+    [1200, 1205].forEach((t) => r.shouldRecord(t));
+    r.breakRange(); // 飛ばした所へ戻る
+
+    // 一度も再生していない区間なので新規として記録する
+    expect(r.shouldRecord(10)).toBe(true);
+    expect(r.shouldRecord(600)).toBe(true);
+    // 冒頭・飛ばした先の視聴済み区間に入ったら重複なので記録しない
+    expect(r.shouldRecord(1200)).toBe(false);
+    expect(r.shouldRecord(1203)).toBe(false);
+    expect(r.shouldRecord(6)).toBe(false);
+    // どの区間も越えた先は新規
+    expect(r.shouldRecord(1206)).toBe(true);
+  });
+
   it('reset() でフロンティアが初期化され、新しい動画（小さい時刻）でも記録を再開する', () => {
     const r = createTranscriptRecorder();
     [600, 1800, 3600].forEach((t) => r.shouldRecord(t)); // 別エピソードを最後まで視聴
@@ -86,5 +104,17 @@ describe('YouTube の途中字幕の統合', () => {
     expect(r.record('Next stop', 13)?.id).toBe(3);
     r.reset();
     expect(r.record('New video', 0)).toEqual({ id: 4, english: 'New video', videoTime: 0 });
+  });
+
+  it('先へ飛ばした後に、飛ばした区間へ戻って見た字幕は記録する（回帰: リストに出ない）', () => {
+    const r = createRollingTranscriptRecorder();
+    expect(r.record('Intro line', 5)?.id).toBe(1);
+    r.breakSequence(); // シーク（先へ）
+    expect(r.record('Late line', 1200)?.id).toBe(2);
+    r.breakSequence(); // シーク（戻る）
+    expect(r.record('Skipped line', 10)).toEqual({ id: 3, english: 'Skipped line', videoTime: 10 });
+    expect(r.record('Another line', 12)?.id).toBe(4);
+    // 視聴済み区間へ入ったら記録しない（続きの行でも重複させない）
+    expect(r.record('Late line', 1200)).toBeNull();
   });
 });

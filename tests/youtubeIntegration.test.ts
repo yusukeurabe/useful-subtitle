@@ -280,3 +280,30 @@ it('shows quota guidance inline while canceled translations remain silent', asyn
   emit('Next', context); await vi.advanceTimersByTimeAsync(350);
   expect(mocks.overlay.setTranslation).toHaveBeenLastCalledWith({ kind: 'none' });
 });
+
+it('records captions in a skipped range when the user seeks back into it (regression)', async () => {
+  vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=skipback'));
+  document.body.innerHTML = '<div id="movie_player"><video class="html5-main-video"></video></div>';
+  const player = document.getElementById('movie_player')!;
+  const video = player.querySelector('video')!;
+  mocks.request.mockReturnValue(new Promise(() => {}));
+  await import('../src/content/index'); await Promise.resolve();
+  const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
+  const context = { contentId: 'youtube:skipback', active: true, isAd: false, player };
+  const seekTo = (t: number): void => {
+    video.currentTime = t;
+    video.dispatchEvent(new Event('seeking'));
+  };
+  video.currentTime = 5;
+  emit('Intro line', context);
+  seekTo(1200);
+  emit('Late line', context);
+  seekTo(10);
+  emit('Skipped line', context);
+  expect(mocks.panel.append).toHaveBeenLastCalledWith({ id: 3, english: 'Skipped line', videoTime: 10 });
+  // Re-entering the already watched late range must not duplicate it.
+  seekTo(1200);
+  emit('Late line', context);
+  expect(mocks.panel.append).toHaveBeenCalledTimes(3);
+  emit(null, context);
+});

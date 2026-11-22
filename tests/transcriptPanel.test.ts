@@ -191,6 +191,16 @@ describe('createTranscriptPanel — 現在再生行のハイライト', () => {
     expect(rowsOf().filter((r) => r.classList.contains('active'))).toHaveLength(1);
   });
 
+  it('後から記録された早い時刻の行は時刻順の位置へ入り、その時刻で active になる', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    panel.append({ id: 1, english: 'intro', videoTime: 5 });
+    panel.append({ id: 2, english: 'late', videoTime: 1200 });
+    panel.append({ id: 3, english: 'skipped', videoTime: 10 });
+    expect(rowsOf().map((r) => r.querySelector('.en')!.textContent)).toEqual(['intro', 'skipped', 'late']);
+    panel.updateActiveByTime(11);
+    expect(activeIndex()).toBe(1);
+  });
+
   it('履歴が空でも updateActiveByTime は何もせず例外を出さない', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     expect(() => panel!.updateActiveByTime(50)).not.toThrow();

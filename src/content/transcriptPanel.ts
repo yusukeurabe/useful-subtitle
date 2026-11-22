@@ -645,10 +645,19 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const ja = document.createElement('div');
     ja.className = 'ja';
     row.append(en, ja);
-    list.appendChild(row);
     jaById.set(entry.id, ja);
-    rows.push({ videoTime: entry.videoTime, el: row });
-    followBottom();
+    // 行は動画の時刻順に並べる。先へ飛ばした後に戻って見た字幕は、後から記録されても
+    // 時刻どおりの位置（途中）へ入る。同じ時刻なら後から来た行を後ろに置く。
+    const index = rows.findIndex((r) => r.videoTime > entry.videoTime);
+    if (index === -1) {
+      list.appendChild(row);
+      rows.push({ videoTime: entry.videoTime, el: row });
+      followBottom();
+    } else {
+      // 途中への挿入は最下部へ送らない（アクティブ行への追従は updateActiveByTime が行う）。
+      list.insertBefore(row, rows[index].el);
+      rows.splice(index, 0, { videoTime: entry.videoTime, el: row });
+    }
   }
 
   function renderWords(entry: TranscriptEntry, row: HTMLDivElement, en: HTMLDivElement): void {
