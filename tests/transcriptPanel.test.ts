@@ -1015,3 +1015,272 @@ describe('createTranscriptPanel — YouTube のヘッダーを塞がない', () 
     expect(host.style.getPropertyValue('--us-top-offset')).toBe('0px');
   });
 });
+
+describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解説を行の下に表示', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function shadow(): ShadowRoot {
+    return document.getElementById(HOST_ID)!.shadowRoot!;
+  }
+  function rowsOf(): HTMLDivElement[] {
+    return Array.from(shadow().querySelectorAll<HTMLDivElement>('.row'));
+  }
+  /** 実ブラウザ同様、バブリングする mouseover を発火する（対象要素＝カーソル直下の要素）。 */
+  function over(el: Element): void {
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+  }
+  function enOf(row: HTMLDivElement): HTMLDivElement {
+    return row.querySelector<HTMLDivElement>('.en')!;
+  }
+  function meaningOf(row: HTMLDivElement): HTMLDivElement | null {
+    return row.querySelector<HTMLDivElement>('.row-meaning');
+  }
+
+  it('単語以外に 500ms 置くと onExplain が英文で呼ばれ、和訳と解説が行の末尾に出る', async () => {
+    const calls: string[] = [];
+    const onSeek = vi.fn();
+    panel = createTranscriptPanel({
+      onSeek,
+      onExplain: async (s) => {
+        calls.push(s);
+        return { ok: true, translation: '頑張って！', explanation: '舞台前のイディオム。' };
+      },
+    });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 7 });
+    const row = rowsOf()[0];
+
+    over(enOf(row)); // 語間（テキストノード上）は対象が .en になる
+    await vi.advanceTimersByTimeAsync(499);
+    expect(calls).toEqual([]);
+    expect(meaningOf(row)).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(calls).toEqual(['Break a leg!']);
+    const m = meaningOf(row)!;
+    expect(m.querySelector('.rm-trans')!.textContent).toBe('頑張って！');
+    expect(m.querySelector('.rm-expl')!.textContent).toBe('舞台前のイディオム。');
+    expect(row.lastElementChild).toBe(m);
+    expect(shadow().querySelector('.hover-popup')).toBeNull(); // 単語ポップアップは出ない
+
+    m.click(); // 差し込み表示のクリックも行のシーク
+    expect(onSeek).toHaveBeenCalledWith(7);
+  });
+
+  it('応答が来るまでは Thinking… を出す', async () => {
+    let resolve: (v: TranscriptMeaning) => void = () => {};
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: () => new Promise<TranscriptMeaning>((r) => { resolve = r; }),
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+    over(row);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(meaningOf(row)!.querySelector('.rm-body.loading')!.textContent).toBe('Thinking…');
+    resolve({ ok: true, translation: 'やあ', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(meaningOf(row)!.querySelector('.loading')).toBeNull();
+    expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('やあ');
+    expect(meaningOf(row)!.querySelector('.rm-expl')).toBeNull(); // 空の解説は出さない
+  });
+
+  it('単語の上に置いているだけでは行の表示は出ない', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: 'y' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    over(wordsOf(row)[0]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onExplain).not.toHaveBeenCalled();
+    expect(meaningOf(row)).toBeNull();
+  });
+
+  it('500ms 前に単語へ移る／行を離れるとドウェルは取り消される', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: 'y' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(300);
+    over(wordsOf(row)[0]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).not.toHaveBeenCalled();
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(300);
+    row.dispatchEvent(new Event('mouseleave'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).not.toHaveBeenCalled();
+  });
+
+  it('同じ行の単語以外を移動してもドウェルは張り直さない（最初の位置から 500ms で出る）', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: 'y' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    over(row);
+    await vi.advanceTimersByTimeAsync(300);
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
+  it('行から離れても表示は残り、成功済みの行へ再ホバーしても再要求しない', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: '残る和訳', explanation: '' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    row.dispatchEvent(new Event('mouseleave'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('残る和訳');
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
+  it('エラーは赤字で出て、再ホバーで再要求する', async () => {
+    const onExplain = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: '取得できませんでした' })
+      .mockResolvedValueOnce({ ok: true, translation: '再取得した和訳', explanation: '' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(meaningOf(row)!.querySelector('.rm-body.err')!.textContent).toBe('取得できませんでした');
+
+    row.dispatchEvent(new Event('mouseleave'));
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(2);
+    expect(row.querySelectorAll('.row-meaning')).toHaveLength(1);
+    expect(meaningOf(row)!.querySelector('.err')).toBeNull();
+    expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('再取得した和訳');
+  });
+
+  it('onExplain が reject してもエラー表示になり、例外を外へ出さない', async () => {
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain: () => Promise.reject(new Error('boom')) });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(meaningOf(row)!.querySelector('.rm-body.err')).not.toBeNull();
+  });
+
+  it('デュアル字幕の和訳（.ja）がある行では解説だけを出す', async () => {
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: async () => ({ ok: true, translation: '重複する和訳', explanation: '補足の解説' }),
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    panel.setTranslation(1, 'やあ、そこの人');
+    const row = rowsOf()[0];
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(meaningOf(row)!.querySelector('.rm-trans')).toBeNull();
+    expect(meaningOf(row)!.querySelector('.rm-expl')!.textContent).toBe('補足の解説');
+  });
+
+  it('英文が更新されると表示が消え、遅れて届いた古い応答は捨てられる', async () => {
+    const resolvers: Array<(v: TranscriptMeaning) => void> = [];
+    const calls: string[] = [];
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: (s) => {
+        calls.push(s);
+        return new Promise<TranscriptMeaning>((r) => { resolvers.push(r); });
+      },
+    });
+    panel.append({ id: 1, english: 'Good', videoTime: 1 });
+    const row = rowsOf()[0];
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(meaningOf(row)).not.toBeNull();
+
+    panel.append({ id: 1, english: 'Good morning', videoTime: 1 });
+    expect(meaningOf(row)).toBeNull();
+    resolvers[0]({ ok: true, translation: '古い和訳', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(meaningOf(row)).toBeNull();
+
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(calls).toEqual(['Good', 'Good morning']);
+    resolvers[1]({ ok: true, translation: 'おはよう', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('おはよう');
+  });
+
+  it('ドウェル中に英文が更新されるとそのドウェルは取り消される', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: '' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Good', videoTime: 1 });
+    over(enOf(rowsOf()[0]));
+    await vi.advanceTimersByTimeAsync(300);
+    panel.append({ id: 1, english: 'Good morning', videoTime: 1 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).not.toHaveBeenCalled();
+  });
+
+  it('clear() 後に遅れて届いた応答は何も描かず、例外も出さない', async () => {
+    let resolve: (v: TranscriptMeaning) => void = () => {};
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplain: () => new Promise<TranscriptMeaning>((r) => { resolve = r; }),
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    over(enOf(rowsOf()[0]));
+    await vi.advanceTimersByTimeAsync(500);
+
+    panel.clear();
+    resolve({ ok: true, translation: '遅い和訳', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rowsOf()).toHaveLength(0);
+    expect(shadow().querySelector('.row-meaning')).toBeNull();
+  });
+
+  it('clear() はドウェル中のタイマーも取り消す', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: 'x', explanation: '' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    over(enOf(rowsOf()[0]));
+    await vi.advanceTimersByTimeAsync(300);
+    panel.clear();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).not.toHaveBeenCalled();
+  });
+
+  it('onExplain 未指定なら何も出ず、行クリックでシークできる', async () => {
+    const onSeek = vi.fn();
+    panel = createTranscriptPanel({ onSeek });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 3 });
+    const row = rowsOf()[0];
+    over(enOf(row));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(meaningOf(row)).toBeNull();
+    row.click();
+    expect(onSeek).toHaveBeenCalledWith(3);
+  });
+});

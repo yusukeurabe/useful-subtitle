@@ -205,6 +205,13 @@ const STYLES = `
 .hover-popup .hp-body { white-space: pre-wrap; }
 .hover-popup .hp-body.loading { opacity: 0.7; }
 .hover-popup .hp-body.err { color: #ff8a8a; }
+/* 行の単語以外ホバーで英文の下に差し込む和訳＋解説（出したまま残す）。 */
+.row .row-meaning { margin-top: 4px; }
+.row .row-meaning .rm-trans { font-size: 12px; line-height: 1.4; color: #ffe08a; white-space: pre-wrap; }
+.row .row-meaning .rm-expl { font-size: 11.5px; line-height: 1.45; color: #c8c8c8; white-space: pre-wrap; margin-top: 2px; }
+.row .row-meaning .rm-body { font-size: 12px; line-height: 1.4; white-space: pre-wrap; }
+.row .row-meaning .rm-body.loading { opacity: 0.7; }
+.row .row-meaning .rm-body.err { color: #ff8a8a; }
 `;
 
 export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptPanel {
@@ -341,7 +348,14 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   });
 
   const jaById = new Map<number, HTMLDivElement>();
-  const entriesById = new Map<number, { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement }>();
+  /** 行の単語以外ホバーで差し込む和訳＋解説の状態。seq は古い応答を捨てるための世代番号。 */
+  interface RowMeaning {
+    el: HTMLDivElement | null;
+    state: 'loading' | 'done' | 'error' | null;
+    seq: number;
+  }
+  type RowItem = { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement; ja: HTMLDivElement; rm: RowMeaning };
+  const entriesById = new Map<number, RowItem>();
   // 行と videoTime の対応を追加順に保持する（現在行判定に使う）。
   const rows: { videoTime: number; el: HTMLDivElement }[] = [];
   // いま .active が付いている行（無ければ null）。
@@ -634,11 +648,97 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (e.key === 'Escape') hideHoverPopup();
   };
 
+  // --- 行の「単語以外の場所」へのホバーで、和訳＋解説を英文の下に差し込む ---
+  // 単語の上は従来どおり単語ポップアップ。ここでは行の余白・語間・短い行の右側の空きなど
+  // 単語以外に ROW_DWELL_MS 留まったときだけ発火し、出した表示は行から離れても残す。
+  const ROW_DWELL_MS = 500;
+  let rowDwellRow: HTMLDivElement | null = null;
+  let rowDwellTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const clearRowDwell = (): void => {
+    rowDwellRow = null;
+    if (rowDwellTimer) {
+      clearTimeout(rowDwellTimer);
+      rowDwellTimer = undefined;
+    }
+  };
+
+  /** 差し込み表示を取り除き、進行中の応答を無効化する（英文更新・全消去時）。 */
+  const resetRowMeaning = (rm: RowMeaning): void => {
+    rm.seq++;
+    rm.el?.remove();
+    rm.el = null;
+    rm.state = null;
+  };
+
+  /** 差し込み表示の中身を描く。null=取得中、ok=false=エラー、ok=true=和訳＋解説。 */
+  const renderRowMeaning = (item: RowItem, res: TranscriptMeaning | null): void => {
+    const el = item.rm.el;
+    if (!el) return;
+    el.replaceChildren();
+    if (res === null || !res.ok) {
+      const body = document.createElement('div');
+      body.className = res === null ? 'rm-body loading' : 'rm-body err';
+      body.textContent = res === null ? 'Thinking…' : res.error;
+      el.appendChild(body);
+      return;
+    }
+    // デュアル字幕の和訳が既に行に出ていれば、和訳は重ねず解説だけを足す。
+    if (res.translation && !item.ja.textContent) {
+      const trans = document.createElement('div');
+      trans.className = 'rm-trans';
+      trans.textContent = res.translation;
+      el.appendChild(trans);
+    }
+    if (res.explanation) {
+      const expl = document.createElement('div');
+      expl.className = 'rm-expl';
+      expl.textContent = res.explanation;
+      el.appendChild(expl);
+    }
+  };
+
+  /** 行の英文の和訳＋解説を取得して差し込む。取得中・取得済みの行では何もしない。 */
+  const openRowMeaning = (item: RowItem): void => {
+    const explain = cb.onExplain;
+    if (!explain) return;
+    const { rm } = item;
+    if (rm.state === 'loading' || rm.state === 'done') return;
+    rm.el?.remove(); // 前回のエラー表示を作り直す
+    const el = document.createElement('div');
+    el.className = 'row-meaning';
+    item.row.appendChild(el);
+    rm.el = el;
+    rm.state = 'loading';
+    const seq = ++rm.seq;
+    // 追従中の最下行が伸びたら、伸びた分も見えるよう最下部へ送る。
+    const settle = (res: TranscriptMeaning | null): void => {
+      renderRowMeaning(item, res);
+      if (rows[rows.length - 1]?.el === item.row) followBottom();
+    };
+    settle(null);
+    void explain(item.entry.english).then(
+      (res) => {
+        if (seq !== rm.seq) return; // 英文更新・全消去で無効化済み
+        rm.state = res.ok ? 'done' : 'error';
+        settle(res);
+      },
+      () => {
+        if (seq !== rm.seq) return;
+        rm.state = 'error';
+        settle({ ok: false, error: '和訳を取得できませんでした。' });
+      },
+    );
+  };
+
   function append(entry: TranscriptEntry): void {
     const existing = entriesById.get(entry.id);
     if (existing) {
       if (existing.entry.english === entry.english) return;
       if (hoverRow === existing.row || dwellRow === existing.row) hideHoverPopup();
+      // 英文が変わったので、差し込み済みの和訳＋解説と待機中の行ドウェルは古くなる。
+      resetRowMeaning(existing.rm);
+      if (rowDwellRow === existing.row) clearRowDwell();
       existing.entry.english = entry.english;
       renderWords(existing.entry, existing.row, existing.en);
       jaById.get(entry.id)!.textContent = '';
@@ -653,16 +753,35 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     // 移ったときは、その単語の mouseenter が先に clearClose して即時で差し替わる。
     row.addEventListener('mouseleave', () => {
       clearDwell();
+      clearRowDwell();
       scheduleClose();
+    });
+    // 単語以外（語間・余白・行末の空き・和訳欄）に入ったら行のドウェルを始める。
+    // 単語に入ったら取り消す（単語の上は単語ポップアップの担当）。
+    row.addEventListener('mouseover', (e) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target?.closest('.word')) {
+        if (rowDwellRow === row) clearRowDwell();
+        return;
+      }
+      if (!cb.onExplain || rowDwellRow === row) return;
+      clearRowDwell();
+      rowDwellRow = row;
+      rowDwellTimer = setTimeout(() => {
+        rowDwellRow = null;
+        rowDwellTimer = undefined;
+        const item = entriesById.get(entry.id);
+        if (item) openRowMeaning(item);
+      }, ROW_DWELL_MS);
     });
     const en = document.createElement('div');
     en.className = 'en';
-
-    entriesById.set(entry.id, { entry, row, en });
-    renderWords(entry, row, en);
-
     const ja = document.createElement('div');
     ja.className = 'ja';
+
+    entriesById.set(entry.id, { entry, row, en, ja, rm: { el: null, state: null, seq: 0 } });
+    renderWords(entry, row, en);
+
     row.append(en, ja);
     jaById.set(entry.id, ja);
     // 行は動画の時刻順に並べる。先へ飛ばした後に戻って見た字幕は、後から記録されても
@@ -752,6 +871,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     list.replaceChildren();
     rows.length = 0;
     jaById.clear();
+    clearRowDwell();
+    for (const item of entriesById.values()) resetRowMeaning(item.rm); // 遅れた応答を無効化
     entriesById.clear();
     activeRow = null;
     following = true; // 新しい作品は最下部へ追従させる
@@ -787,6 +908,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     hideHoverPopup();
     host.remove();
     jaById.clear();
+    clearRowDwell();
+    for (const item of entriesById.values()) resetRowMeaning(item.rm); // 遅れた応答を無効化
     entriesById.clear();
   }
 
