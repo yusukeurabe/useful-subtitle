@@ -1399,3 +1399,133 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     expect(onSeek).toHaveBeenCalledWith(3);
   });
 });
+
+describe('createTranscriptPanel — 履歴パネルのホバーで一時停止の通知', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    panel?.destroy();
+    panel = null;
+  });
+
+  function shadow(): ShadowRoot {
+    return document.getElementById(HOST_ID)!.shadowRoot!;
+  }
+  function panelEl(): HTMLDivElement {
+    return shadow().querySelector<HTMLDivElement>('.panel')!;
+  }
+  function popup(): HTMLDivElement | null {
+    return shadow().querySelector<HTMLDivElement>('.hover-popup');
+  }
+  /** 単語ポップアップを開いた状態にする。 */
+  async function openWordPopup(): Promise<void> {
+    const row = shadow().querySelector<HTMLDivElement>('.row')!;
+    wordsOf(row)[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(popup()).not.toBeNull();
+  }
+
+  it('パネルに入ると onHoverStart、出ると onHoverEnd({resume:true}) を通知する', () => {
+    const onHoverStart = vi.fn();
+    const onHoverEnd = vi.fn();
+    panel = createTranscriptPanel({ onSeek: () => {}, onHoverStart, onHoverEnd });
+
+    panelEl().dispatchEvent(new Event('mouseenter'));
+    expect(onHoverStart).toHaveBeenCalledTimes(1);
+    expect(onHoverEnd).not.toHaveBeenCalled();
+
+    panelEl().dispatchEvent(new Event('mouseleave'));
+    expect(onHoverEnd).toHaveBeenCalledTimes(1);
+    expect(onHoverEnd).toHaveBeenCalledWith({ resume: true });
+  });
+
+  it('単語ポップアップが開いている間はパネルを出てもホバー継続（ポップアップが閉じたら終了）', async () => {
+    const onHoverEnd = vi.fn();
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '' }),
+      onHoverStart: () => {},
+      onHoverEnd,
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    panelEl().dispatchEvent(new Event('mouseenter'));
+    await openWordPopup();
+
+    // パネルからポップアップへ移る途中。ポップアップが開いているので再開しない。
+    panelEl().dispatchEvent(new Event('mouseleave'));
+    popup()!.dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onHoverEnd).not.toHaveBeenCalled();
+
+    // ポップアップからも出て、猶予の後に閉じたら再開を通知する。
+    popup()!.dispatchEvent(new Event('mouseleave'));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(popup()).toBeNull();
+    expect(onHoverEnd).toHaveBeenCalledTimes(1);
+    expect(onHoverEnd).toHaveBeenCalledWith({ resume: true });
+  });
+
+  it('パネル内にいる間にポップアップが閉じても（Esc）ホバー終了は通知しない', async () => {
+    const onHoverEnd = vi.fn();
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '' }),
+      onHoverStart: () => {},
+      onHoverEnd,
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    panelEl().dispatchEvent(new Event('mouseenter'));
+    await openWordPopup();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(popup()).toBeNull();
+    expect(onHoverEnd).not.toHaveBeenCalled();
+  });
+
+  it('clear() でポップアップが閉じたときは再開しない（resume:false）', async () => {
+    const onHoverEnd = vi.fn();
+    panel = createTranscriptPanel({
+      onSeek: () => {},
+      onExplainWord: async () => ({ ok: true, senses: [], explanation: '' }),
+      onHoverStart: () => {},
+      onHoverEnd,
+    });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    panelEl().dispatchEvent(new Event('mouseenter'));
+    await openWordPopup();
+    panelEl().dispatchEvent(new Event('mouseleave'));
+    popup()!.dispatchEvent(new Event('mouseenter'));
+
+    panel.clear();
+    expect(onHoverEnd).toHaveBeenCalledTimes(1);
+    expect(onHoverEnd).toHaveBeenCalledWith({ resume: false });
+  });
+
+  it('カーソルを乗せたまま ✕ でパネルを閉じてもホバー終了を通知する（止まったままにしない）', () => {
+    const onHoverEnd = vi.fn();
+    panel = createTranscriptPanel({ onSeek: () => {}, onHoverStart: () => {}, onHoverEnd });
+    panel.setVisible(true);
+    panelEl().dispatchEvent(new Event('mouseenter'));
+    shadow().querySelector<HTMLButtonElement>('.header .x')!.click();
+    expect(onHoverEnd).toHaveBeenCalledTimes(1);
+    expect(onHoverEnd).toHaveBeenCalledWith({ resume: true });
+    // 後から mouseleave が遅れて届いても二重に通知しない。
+    panelEl().dispatchEvent(new Event('mouseleave'));
+    expect(onHoverEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('通知先が未指定でもパネルの出入りで例外を出さない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    expect(() => {
+      panelEl().dispatchEvent(new Event('mouseenter'));
+      panelEl().dispatchEvent(new Event('mouseleave'));
+    }).not.toThrow();
+  });
+});

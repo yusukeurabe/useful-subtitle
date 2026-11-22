@@ -14,7 +14,7 @@ export interface Settings {
   dualSubtitle: boolean;
   /** 単語クリック時に動画を自動で一時停止する。 */
   autoPauseOnClick: boolean;
-  /** 動画上の字幕にカーソルを乗せている間は動画を一時停止する。 */
+  /** 動画上の字幕・右側の字幕履歴にカーソルを乗せている間は動画を一時停止する。 */
   pauseOnSubtitleHover: boolean;
   /** 字幕の大小文字をローカルで自動整形する（簡易 truecasing）。 */
   truecaseSubtitle: boolean;

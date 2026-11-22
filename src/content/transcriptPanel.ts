@@ -44,6 +44,13 @@ export interface TranscriptPanelCallbacks {
   onPlayAudio?: (word: string, audioUrl: string | null) => void;
   /** ヘッダーの消去ボタンクリックで履歴を全消去する（未指定ならボタンを出さない）。 */
   onClearHistory?: () => void;
+  /** 履歴パネルにカーソルが入った（一時停止用。字幕ホバーと同じ通知）。 */
+  onHoverStart?: () => void;
+  /**
+   * 履歴パネルのホバーが終わった（パネルからも単語ポップアップからも外れた）。
+   * resume=false は履歴の全消去でポップアップを閉じたときで、再開はしない。
+   */
+  onHoverEnd?: (opts: { resume: boolean }) => void;
 }
 
 export interface TranscriptPanel {
@@ -232,6 +239,23 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   panelHost.className = 'host';
   const panel = document.createElement('div');
   panel.className = 'panel';
+  // --- 履歴パネルのホバーで一時停止（字幕ホバーと同じ通知）---
+  // 再生中は履歴が自動で流れて読みにくく、止まったカーソルの下を行が通り過ぎもするので、
+  // パネルに乗せている間は止める。単語ポップアップはパネルの外（左側）に開くため、
+  // 開いている間はパネルを出てもホバー継続とし、ポップアップが閉じた時点で終了を通知する。
+  let inPanel = false;
+  panel.addEventListener('mouseenter', () => {
+    inPanel = true;
+    cb.onHoverStart?.();
+  });
+  // パネルから外れた扱いにする。✕ や非表示でカーソルの下から消えたときは mouseleave が
+  // 来ないことがあるので、隠す側からも呼んで一時停止が残らないようにする。
+  const leavePanel = (): void => {
+    if (!inPanel) return;
+    inPanel = false;
+    if (!hoverPopup) cb.onHoverEnd?.({ resume: true });
+  };
+  panel.addEventListener('mouseleave', leavePanel);
   const header = document.createElement('div');
   header.className = 'header';
   const title = document.createElement('span');
@@ -276,6 +300,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const setVisible = (visible: boolean): void => {
     panelHost.style.display = visible ? '' : 'none';
     reopen.style.display = visible ? 'none' : '';
+    if (!visible) leavePanel();
     syncTopOffset();
     if (!visible) clampReopen();
   };
@@ -438,7 +463,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     el?.classList.add('popup-target');
     targetWord = el;
   };
-  const hideHoverPopup = (): void => {
+  const hideHoverPopup = (resume = true): void => {
     hoverRow = null;
     setTargetWord(null);
     clearDwell();
@@ -447,6 +472,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     if (hoverPopup) {
       hoverPopup.remove();
       hoverPopup = null;
+      // パネルの外で開いていたポップアップが閉じたら、そこでホバー終了（一時停止の解除）。
+      if (!inPanel) cb.onHoverEnd?.({ resume });
     }
   };
   const scheduleClose = (): void => {
@@ -907,7 +934,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   // 履歴を全消去する（別作品・別エピソードへの切り替え時に呼ぶ）。行・対応表・
   // アクティブ行・追従状態を初期化し、開いていればホバーカードも閉じる。
   function clear(): void {
-    hideHoverPopup(); // 消える行を指したままのカードを残さない
+    // 消える行を指したままのカードを残さない。作品の切り替え時なので一時停止は再開しない。
+    hideHoverPopup(false);
     list.replaceChildren();
     rows.length = 0;
     jaById.clear();
@@ -945,7 +973,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     document.removeEventListener('keydown', onHoverKeyDown, true);
     window.removeEventListener('resize', clampReopen);
     window.removeEventListener('resize', syncTopOffset);
-    hideHoverPopup();
+    hideHoverPopup(false);
     host.remove();
     jaById.clear();
     clearRowDwell();
