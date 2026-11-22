@@ -983,3 +983,35 @@ describe('createTranscriptPanel — 再表示ボタン（小型・ドラッグ�
     expect(reopen.style.top).toBe('60px');
   });
 });
+
+describe('createTranscriptPanel — YouTube のヘッダーを塞がない', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.getElementById(HOST_ID)?.remove();
+    document.body.replaceChildren();
+  });
+
+  const mountWithMasthead = (url: string): HTMLElement => {
+    vi.stubGlobal('location', new URL(url));
+    const masthead = document.createElement('div');
+    masthead.id = 'masthead-container';
+    masthead.getBoundingClientRect = () => ({ bottom: 56 } as DOMRect);
+    document.body.replaceChildren(masthead);
+    createTranscriptPanel({ onSeek: () => {} });
+    return document.getElementById(HOST_ID)!;
+  };
+
+  it('YouTube ではヘッダーの高さぶん下げて、パネルと☰ボタンをヘッダーの下に置く', () => {
+    const host = mountWithMasthead('https://www.youtube.com/watch?v=abc');
+    expect(host.style.getPropertyValue('--us-top-offset')).toBe('56px');
+    const css = host.shadowRoot!.querySelector('style')!.textContent!;
+    expect(css).toContain('top: var(--us-top-offset, 0px)');
+    expect(css).toContain('height: calc(100% - var(--us-top-offset, 0px))');
+    expect(css).toContain('top: calc(var(--us-top-offset, 0px) + 8px)');
+  });
+
+  it('YouTube 以外では下げない', () => {
+    const host = mountWithMasthead('https://www.primevideo.com/detail/B0X');
+    expect(host.style.getPropertyValue('--us-top-offset')).toBe('0px');
+  });
+});
