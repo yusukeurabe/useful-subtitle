@@ -188,7 +188,7 @@ async function main(): Promise<void> {
     if (raw === null) {
       cancelTranslation();
       currentText = '';
-      overlay.clearLine();
+      overlay.clearLine(context.captionsOff);
       return;
     }
     const text = settings.truecaseSubtitle ? toTrueCase(raw) : raw;
