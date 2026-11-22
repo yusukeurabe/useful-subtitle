@@ -88,7 +88,7 @@ it('ポップアップ下段に、いま表示中の字幕一文の和訳と解�
   const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
   const section = shadow.querySelector<HTMLDivElement>('.popup .sentence')!;
   expect(section.hidden).toBe(false);
-  expect(section.textContent).toContain('Thinking');
+  expect(section.querySelector('.skeleton[aria-label="Thinking…"]')).not.toBeNull();
   pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
   pending[1]({ ok: true, text: 'V[I]: 走る\n説明: 走ること' });
   pending[2]({ ok: true, text: '訳: 私は毎日走る。\n説明: 習慣を表す現在形。' });

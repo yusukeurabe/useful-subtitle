@@ -199,15 +199,40 @@ describe('createOverlay — ポップアップを字幕に被せない', () => {
     expect(shadow().querySelector<HTMLElement>('.popup')!.style.overflowY).toBe('auto');
   });
 
-  it('次に背の低い内容で置き直したら、詰めた高さを解除する', () => {
+  it('次に背の低い内容で開き直したら、詰めた高さを解除する', () => {
     popupHeight = 900;
     renderAt(400, 560);
     overlay!.openPopup(new DOMRect(500, 410, 60, 30), 'Hello');
     popupHeight = 150;
-    overlay!.setPopupMeaning('short', []);
+    overlay!.openPopup(new DOMRect(500, 410, 60, 30), 'Hi');
     const box = popupBox();
     expect(box.maxHeight).toBe('');
     expect(box.bottom).toBeLessThanOrEqual(400);
+  });
+
+  it('解説が届いて内容が縮んでも、背の高さと位置を保つ（単語・発音記号がずれない）', () => {
+    renderAt(600, 760);
+    popupHeight = 300; // 読み込み中（スケルトン込み）の高さ
+    overlay!.openPopup(new DOMRect(500, 610, 60, 30), 'First');
+    const before = popupBox().top;
+    expect(before).toBe(600 - 8 - 300);
+    popupHeight = 220; // 実際の解説はスケルトンの見込みより短かった
+    overlay!.setPopupMeaning('short', []);
+    const popup = shadow().querySelector<HTMLElement>('.popup')!;
+    expect(popup.style.minHeight).toBe('300px');
+    expect(parseFloat(popup.style.top)).toBe(before);
+  });
+
+  it('閉じて開き直したら、前のポップアップの高さは引き継がない', () => {
+    renderAt(600, 760);
+    popupHeight = 400;
+    overlay!.openPopup(new DOMRect(500, 610, 60, 30), 'First');
+    overlay!.hidePopup();
+    popupHeight = 200;
+    overlay!.openPopup(new DOMRect(500, 610, 60, 30), 'line');
+    const popup = shadow().querySelector<HTMLElement>('.popup')!;
+    expect(popup.style.minHeight).toBe('');
+    expect(parseFloat(popup.style.top)).toBe(600 - 8 - 200);
   });
 });
 
@@ -901,5 +926,57 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     const up = shadow().querySelector<HTMLButtonElement>('.pos-btn')!; // 先頭は ▲
     up.click();
     expect(bar().style.getPropertyValue('--sub-bottom')).toBe('16%');
+  });
+});
+
+describe('createOverlay — 読み込み中のスケルトン（結果と同じ場所・行数で先に場所を取る）', () => {
+  let overlay: Overlay | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.renderLine('Hello world', tokenizeLine('Hello world'), 0);
+  });
+
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  const lines = (sel: string): number => shadow().querySelectorAll(`.popup ${sel} .skel-line`).length;
+
+  it('開いた直後は品詞の訳と解説の場所にスケルトンを置く', () => {
+    overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'Hello');
+    const senses = shadow().querySelector<HTMLElement>('.popup .senses')!;
+    expect(senses.style.display).toBe('');
+    expect(lines('.senses')).toBe(2);
+    expect(lines('.body')).toBe(4);
+  });
+
+  it('解説が届いたらスケルトンを結果に差し替える', () => {
+    overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'Hello');
+    overlay!.setPopupMeaning('挨拶の言葉。', [{ pos: 'Int.', gloss: 'こんにちは' }]);
+    expect(shadow().querySelectorAll('.popup .skel-line')).toHaveLength(0);
+    expect(shadow().querySelector('.popup .body')!.textContent).toBe('挨拶の言葉。');
+    expect(shadow().querySelector('.popup .senses .sense-gloss')!.textContent).toBe('こんにちは');
+  });
+
+  it('エラーのときは品詞の訳のスケルトンも消す', () => {
+    overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'Hello');
+    overlay!.setPopupError('失敗しました');
+    expect(shadow().querySelectorAll('.popup .skel-line')).toHaveLength(0);
+    expect(shadow().querySelector<HTMLElement>('.popup .senses')!.style.display).toBe('none');
+  });
+
+  it('字幕一文の和訳も、結果と同じ並び（和訳ラベル→訳→解説）のスケルトンで待つ', () => {
+    overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'Hello');
+    overlay!.setPopupSentence(null);
+    expect(shadow().querySelector('.popup .sentence .s-label')!.textContent).toBe('和訳');
+    expect(lines('.sentence .s-trans')).toBe(2);
+    expect(lines('.sentence .s-expl')).toBe(4);
+    overlay!.setPopupSentence({ ok: true, translation: 'こんにちは世界', explanation: '挨拶。' });
+    expect(shadow().querySelectorAll('.popup .sentence .skel-line')).toHaveLength(0);
+    expect(shadow().querySelector('.popup .sentence .s-trans')!.textContent).toBe('こんにちは世界');
   });
 });
