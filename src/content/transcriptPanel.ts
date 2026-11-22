@@ -696,6 +696,11 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       expl.textContent = res.explanation;
       el.appendChild(expl);
     }
+    // 描くものが無ければ空の枠を残さない（state は done のままなので再要求もしない）。
+    if (!el.firstChild) {
+      el.remove();
+      item.rm.el = null;
+    }
   };
 
   /** 行の英文の和訳＋解説を取得して差し込む。取得中・取得済みの行では何もしない。 */
@@ -756,9 +761,12 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       clearRowDwell();
       scheduleClose();
     });
-    // 単語以外（語間・余白・行末の空き・和訳欄）に入ったら行のドウェルを始める。
+    // 単語以外（語間・余白・行末の空き・和訳欄）でマウスを動かしたら行のドウェルを始める。
     // 単語に入ったら取り消す（単語の上は単語ポップアップの担当）。
-    row.addEventListener('mouseover', (e) => {
+    // mouseover ではなく mousemove を使うのは、再生中の自動スクロールで止まったカーソルの
+    // 下を行が流れると、ブラウザがマウスを動かさなくても mouseover を出し、流れてきた行ごとに
+    // ドウェルが始まって AI 呼び出しが連発するため。実際にマウスを動かしたときだけ発火させる。
+    row.addEventListener('mousemove', (e) => {
       const target = e.target instanceof Element ? e.target : null;
       if (target?.closest('.word')) {
         if (rowDwellRow === row) clearRowDwell();
