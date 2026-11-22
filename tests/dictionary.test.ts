@@ -156,16 +156,30 @@ describe('extractCambridgeWordInfo', () => {
     });
   });
 
-  it('rejects (returns nulls) when US section has audio but no IPA text', () => {
+  it('keeps intra-day audio without taking the IPA from the Word of the Day', () => {
     const html = `
       <html><body>
         <span class="us dpron-i">
-          <audio>
-            <source type="audio/mpeg" src="/media/english/us_pron/x/x.mp3">
-          </audio>
+          <span class="region dreg">us</span>
+          <span class="daud"><audio>
+            <source type="audio/mpeg" src="/media/english/us_pron/u/usb/usbp0/usbp0575.mp3">
+          </audio></span>
         </span>
+        <div><p>Word of the Day</p><a href="/dictionary/english/spoiler">spoiler</a>
+          <span class="ipa dipa">/ˈspɔɪ.lə<span>r</span>/</span>
+        </div>
       </body></html>`;
-    expect(extractCambridgeWordInfo(html)).toEqual({ ipa: null, audioUrl: null });
+    expect(extractCambridgeWordInfo(html)).toEqual({
+      ipa: null,
+      audioUrl: 'https://dictionary.cambridge.org/media/english/us_pron/u/usb/usbp0/usbp0575.mp3',
+    });
+  });
+
+  it('does not take a later audio source when the US span only contains IPA', () => {
+    const html = `
+      <span class="us dpron-i"><span class="ipa dipa">rʌn</span></span>
+      <audio><source type="audio/mpeg" src="/media/english/us_pron/s/spoiler.mp3"></audio>`;
+    expect(extractCambridgeWordInfo(html)).toEqual({ ipa: 'rʌn', audioUrl: null });
   });
 
   it('keeps already-absolute audio URLs as-is', () => {

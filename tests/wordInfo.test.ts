@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createWordInfoFetcher } from '../src/background/wordInfo';
 
+const CAMBRIDGE_US_AUDIO = '<span class="daud"><audio><source type="audio/mpeg" src="/media/english/us_pron/r/run.mp3"/></audio></span>';
+const INTRADAY_AUDIO_PATH = '/media/english/us_pron/u/usb/usbp0/usbp0575.mp3';
+const INTRADAY_CAMBRIDGE = `<span class="us dpron-i"><audio><source type="audio/mpeg" src="${INTRADAY_AUDIO_PATH}"></audio></span>`;
 const CAMBRIDGE_WITH_AUDIO = `
 <span class="us dpron-i "><span class="region dreg">us</span>
-<span class="daud"><audio><source type="audio/mpeg" src="/media/english/us_pron/r/run.mp3"/></audio></span>
+${CAMBRIDGE_US_AUDIO}
 <span class="pron dpron">/<span class="ipa dipa lpr-2 lpl-1">rʌn</span>/</span></span>`;
 const CAMBRIDGE_IPA_ONLY = `
 <span class="us dpron-i "><span class="region dreg">us</span>
@@ -42,6 +45,34 @@ describe('createWordInfoFetcher', () => {
     const f = fetcher(response('', false), response(DICT_API_JSON));
     const info = await createWordInfoFetcher(f)('run');
     expect(info).toEqual({ ipa: '/rʌn/', audioUrl: 'https://api.dictionaryapi.dev/media/pronunciations/en/run-us.mp3' });
+  });
+
+  it('Cambridge に音源だけあれば、予備APIに発音記号がなくても音源を使う', async () => {
+    const audioOnly = `<span class="us dpron-i">${CAMBRIDGE_US_AUDIO}</span>`;
+    const f = fetcher(response(audioOnly), response([{ word: 'run', phonetics: [] }]));
+    expect(await createWordInfoFetcher(f)('run')).toEqual({
+      ipa: null,
+      audioUrl: 'https://dictionary.cambridge.org/media/english/us_pron/r/run.mp3',
+    });
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['intraday', 'intra-day'])('%s の発音記号を補い、Cambridge の音源を使う', async (word) => {
+    const f = fetcher(response(INTRADAY_CAMBRIDGE), response([{ word, phonetics: [] }]));
+    expect(await createWordInfoFetcher(f)(word)).toEqual({
+      ipa: 'ˈɪntrəˌdeɪ',
+      audioUrl: `https://dictionary.cambridge.org${INTRADAY_AUDIO_PATH}`,
+    });
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it('通信失敗時も intraday の発音記号を補い、次の検索で音源を再取得する', async () => {
+    const f = fetcher(response(INTRADAY_CAMBRIDGE), response([{ word: 'intraday', phonetics: [] }]))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error('offline'));
+    const get = createWordInfoFetcher(f);
+    expect(await get('intraday')).toEqual({ ipa: 'ˈɪntrəˌdeɪ', audioUrl: null });
+    expect((await get('intraday')).audioUrl).toBe(`https://dictionary.cambridge.org${INTRADAY_AUDIO_PATH}`);
   });
 
   it('取得できた結果は覚えておき、同じ単語で再取得しない', async () => {

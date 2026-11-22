@@ -85,20 +85,18 @@ export function extractWordInfo(json: unknown): WordInfo {
 
 /**
  * Cambridge 英英ページ HTML から US 発音セクションの IPA と mp3 URL を抽出する。
- * IPA は主目的のため、IPA が取れなければ {null,null} を返す（呼び出し側はフォールバックする）。
- * 音源 URL が相対パスなら絶対 URL 化する。失敗系は静かに {null,null}。
+ * IPA と音源は同じ US セクション内から取得する。片方しかない場合も取得できた方は返す。
+ * 音源 URL が相対パスなら絶対 URL 化する。
  *
  * MV3 service worker では DOMParser が信頼できないため、HTML を文字列のまま走査する。
  */
 export function extractCambridgeWordInfo(html: string): WordInfo {
   if (!html) return { ipa: null, audioUrl: null };
   try {
-    const us = sliceCambridgeUsBlock(html);
+    const us = extractSpanContents(html, ['us', 'dpron-i']);
     if (!us) return { ipa: null, audioUrl: null };
 
-    const ipa = extractCambridgeIpa(us);
-    if (!ipa) return { ipa: null, audioUrl: null };
-
+    const ipa = extractSpanContents(us, ['ipa', 'dipa'])?.replace(/<[^>]*>/g, '').trim() || null;
     const src = extractCambridgeMp3Src(us);
     const audioUrl = src ? absolutizeCambridgeUrl(src) : null;
 
@@ -108,44 +106,19 @@ export function extractCambridgeWordInfo(html: string): WordInfo {
   }
 }
 
-// class 属性に us と dpron-i を両方含む最初の <span> から、次の dpron-i ブロック
-// （UK または別語義の US）の直前までを切り出す。閉じ </span> をネスト追跡しないので
-// 次のセクション開始位置でスコープを切る簡易策で十分。
-function sliceCambridgeUsBlock(html: string): string | null {
-  const usStart = matchClassAttr(html, ['us', 'dpron-i']);
-  if (!usStart) return null;
-  const after = html.slice(usStart.end);
-  const next = matchClassAttr(after, ['dpron-i']); // uk/us いずれの次ブロックも検出
-  return next ? after.slice(0, next.start) : after;
-}
+function extractSpanContents(html: string, classes: string[]): string | null {
+  const lookaheads = classes.map((name) => `(?=(?:[^"]*\\s)?${name}(?:\\s|"))`).join('');
+  const opening = new RegExp(`<span\\s+class="${lookaheads}[^"]*"[^>]*>`, 'i').exec(html);
+  if (!opening) return null;
+  const contents = html.slice(opening.index + opening[0].length);
 
-function extractCambridgeIpa(block: string): string | null {
-  // <span class="... ipa ... dipa ...">CONTENT</span> の CONTENT を取り出す。
-  // -tion / -sion などは CONTENT 内に <span class="sp dsp">ə</span> が入れ子で挟まる
-  // ため、非貪欲な単発の正規表現だと最初の </span> で止まり末尾 ("n" 等) を落とす。
-  // 開きタグ位置から <span>/</span> を数えて対応する閉じタグを探す。
-  const openRe = /<span\s+class="(?=[^"]*\bipa\b)(?=[^"]*\bdipa\b)[^"]*"[^>]*>/i;
-  const openM = block.match(openRe);
-  if (!openM || openM.index === undefined) return null;
-  const contentStart = openM.index + openM[0].length;
-
+  // US セクションも IPA も span が入れ子になるため、対応する閉じタグまでを取る。
   let depth = 1;
-  let contentEnd = -1;
-  for (const tag of block.matchAll(/<(\/?)span\b[^>]*>/gi)) {
-    if (tag.index === undefined || tag.index < contentStart) continue;
-    if (tag[1] === '/') {
-      depth--;
-      if (depth === 0) {
-        contentEnd = tag.index;
-        break;
-      }
-    } else {
-      depth++;
-    }
+  for (const tag of contents.matchAll(/<(\/?)span\b[^>]*>/gi)) {
+    depth += tag[1] ? -1 : 1;
+    if (depth === 0) return contents.slice(0, tag.index);
   }
-  if (contentEnd < 0) return null;
-  const text = block.slice(contentStart, contentEnd).replace(/<[^>]*>/g, '').trim();
-  return text || null;
+  return null;
 }
 
 function extractCambridgeMp3Src(block: string): string | null {
@@ -154,23 +127,6 @@ function extractCambridgeMp3Src(block: string): string | null {
   if (ordered) return ordered[1];
   const reversed = block.match(/<source\s+src="([^"]+)"\s+type="audio\/mpeg"/i);
   return reversed ? reversed[1] : null;
-}
-
-// class 属性の値に指定した全クラスを（順不同・他クラス混在可で）含む最初の開始タグを探す。
-function matchClassAttr(
-  html: string,
-  classes: string[],
-): { start: number; end: number } | null {
-  const lookaheads = classes.map((c) => `(?=[^"]*\\b${escapeRe(c)}\\b)`).join('');
-  const re = new RegExp(`<span\\s+class="${lookaheads}[^"]*"`, 'i');
-  const m = html.match(re);
-  return m && m.index !== undefined
-    ? { start: m.index, end: m.index + m[0].length }
-    : null;
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
