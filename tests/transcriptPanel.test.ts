@@ -665,6 +665,100 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
     wordsOf(rowsOf()[0])[0].dispatchEvent(new Event('mouseenter'));
     await vi.advanceTimersByTimeAsync(500);
     expect(popup()).toBeNull();
+    expect(wordsOf(rowsOf()[0])[0].classList.contains('popup-target')).toBe(false);
+  });
+
+  describe('ポップアップが説明している単語のハイライト', () => {
+    function highlighted(): HTMLSpanElement[] {
+      const host = document.getElementById(HOST_ID);
+      return Array.from(host!.shadowRoot!.querySelectorAll<HTMLSpanElement>('.word.popup-target'));
+    }
+    function makePanel(): TranscriptPanel {
+      return createTranscriptPanel({
+        onSeek: () => {},
+        onExplainWord: async (w) => ({ ok: true, senses: [], explanation: `expl:${w}` }),
+        onExplain: async () => ({ ok: true, translation: 't', explanation: '' }),
+      });
+    }
+
+    it('ポップアップが開くとその単語だけがハイライトされる（ドウェル前は付かない）', async () => {
+      panel = makePanel();
+      panel.append({ id: 1, english: 'one two', videoTime: 1 });
+      const [one] = wordsOf(rowsOf()[0]);
+
+      one.dispatchEvent(new Event('mouseenter'));
+      expect(highlighted()).toEqual([]);
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(highlighted()).toEqual([one]);
+    });
+
+    it('別の単語へ切り替わるとハイライトも移り、常に1語だけになる（行を跨いでも）', async () => {
+      panel = makePanel();
+      panel.append({ id: 1, english: 'one two', videoTime: 1 });
+      panel.append({ id: 2, english: 'three', videoTime: 2 });
+      const [one, two] = wordsOf(rowsOf()[0]);
+      const [three] = wordsOf(rowsOf()[1]);
+
+      one.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(500);
+      two.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(highlighted()).toEqual([two]);
+
+      three.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(highlighted()).toEqual([three]);
+    });
+
+    it('同じ綴りの単語が並んでいても、ホバーした位置の単語だけをハイライトする', async () => {
+      panel = makePanel();
+      panel.append({ id: 1, english: 'the cat and the dog', videoTime: 1 });
+      const words = wordsOf(rowsOf()[0]);
+      const secondThe = words[3];
+
+      secondThe.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(highlighted()).toEqual([secondThe]);
+    });
+
+    it('ポップアップへカーソルを移している間はハイライトが残る', async () => {
+      panel = makePanel();
+      panel.append({ id: 1, english: 'one two', videoTime: 1 });
+      const row = rowsOf()[0];
+      const [one] = wordsOf(row);
+
+      one.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(500);
+      one.dispatchEvent(new Event('mouseleave'));
+      row.dispatchEvent(new Event('mouseleave'));
+      popup()!.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(highlighted()).toEqual([one]);
+    });
+
+    it('ポップアップが閉じるとハイライトも消える（離れたとき・Esc）', async () => {
+      panel = makePanel();
+      panel.append({ id: 1, english: 'one two', videoTime: 1 });
+      const row = rowsOf()[0];
+      const [one, two] = wordsOf(row);
+
+      one.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(500);
+      row.dispatchEvent(new Event('mouseleave'));
+      await vi.advanceTimersByTimeAsync(300);
+      expect(popup()).toBeNull();
+      expect(highlighted()).toEqual([]);
+
+      two.dispatchEvent(new Event('mouseenter'));
+      await vi.advanceTimersByTimeAsync(500);
+      expect(highlighted()).toEqual([two]);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(popup()).toBeNull();
+      expect(highlighted()).toEqual([]);
+    });
   });
 });
 
