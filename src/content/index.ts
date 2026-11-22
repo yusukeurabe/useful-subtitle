@@ -104,6 +104,9 @@ async function main(): Promise<void> {
         onLookupWordInfo: fetchWordInfo,
         onPlayAudio: (word, audioUrl) => void playPronunciation(word, audioUrl),
         onClearHistory: clearHistory,
+        // 履歴パネルに乗せている間も、字幕ホバーと同じ設定・仕組みで一時停止する。
+        onHoverStart: () => hoverPause?.start(),
+        onHoverEnd: (opts) => hoverPause?.end(opts),
       })
     : null;
   panel?.setVisible(!youtube);
