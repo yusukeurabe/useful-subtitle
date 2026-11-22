@@ -1,5 +1,5 @@
 import { isYouTube, isYouTubeAd } from './site';
-import { getSettings, saveSettings } from '../shared/settings';
+import { getSettings, saveSettingsQuietly } from '../shared/settings';
 import { tokenizeLine } from '../shared/tokenize';
 import { toTrueCase } from '../shared/truecase';
 import { startCaptionObserver } from './captionObserver';
@@ -50,7 +50,7 @@ async function main(): Promise<void> {
     },
     {
       bottomPercent: settings.subtitleBottomPercent,
-      onBottomChange: (percent) => void saveSettings({ subtitleBottomPercent: percent }),
+      onBottomChange: (percent) => void saveSettingsQuietly({ subtitleBottomPercent: percent }),
     },
   );
 

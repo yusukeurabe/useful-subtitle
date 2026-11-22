@@ -1,5 +1,11 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { DEFAULT_MODEL, DEFAULT_SETTINGS, getSettings, saveSettings } from '../src/shared/settings';
+import {
+  DEFAULT_MODEL,
+  DEFAULT_SETTINGS,
+  getSettings,
+  saveSettings,
+  saveSettingsQuietly,
+} from '../src/shared/settings';
 
 describe('settings', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -109,4 +115,25 @@ describe('Haiku 5.5 settings migration', () => {
 it('preserves an explicit subscription choice and saved API key and switches', async () => {
   await saveSettings({ provider: 'claude-subscription', apiKey: 'stored-key', dualSubtitle: false });
   expect(await getSettings()).toMatchObject({ provider: 'claude-subscription', apiKey: 'stored-key', dualSubtitle: false });
+});
+
+describe('saveSettingsQuietly（content script からの保存）', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('通常どおり保存できる', async () => {
+    await saveSettingsQuietly({ subtitleBottomPercent: 25 });
+    expect((await getSettings()).subtitleBottomPercent).toBe(25);
+  });
+
+  it('拡張の再読み込み後（storage が同期的に例外を投げる）でも reject しない', async () => {
+    vi.spyOn(chrome.storage.local, 'set').mockImplementation(() => {
+      throw new Error('Extension context invalidated.');
+    });
+    await expect(saveSettingsQuietly({ subtitleBottomPercent: 25 })).resolves.toBeUndefined();
+  });
+
+  it('storage の Promise が reject しても reject しない', async () => {
+    vi.spyOn(chrome.storage.local, 'set').mockRejectedValue(new Error('Extension context invalidated.'));
+    await expect(saveSettingsQuietly({ subtitleBottomPercent: 25 })).resolves.toBeUndefined();
+  });
 });

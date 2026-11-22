@@ -41,3 +41,17 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   await chrome.storage.local.set(patch);
 }
+
+/**
+ * content script から投げっぱなしで保存するための版。失敗しても reject しない。
+ * 拡張を再読み込み（↻）した後もタブに残る古い content script では、storage を叩くと
+ * "Extension context invalidated" が（同期例外として）出る。保存できなくてもそのページでは
+ * 動かした値のまま使えるので、未処理エラーとしてコンソールに出さずに握りつぶす。
+ */
+export async function saveSettingsQuietly(patch: Partial<Settings>): Promise<void> {
+  try {
+    await chrome.storage.local.set(patch);
+  } catch {
+    // 再読み込み（F5）すれば新しい content script で保存できるようになる。
+  }
+}
