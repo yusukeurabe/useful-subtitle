@@ -90,6 +90,16 @@ describe('YouTube captions and lifecycle', () => {
     expect(change.mock.calls.at(-1)?.[0]).toBe('Hello world Second line');
   });
 
+  it('reads styled captions drawn as two stacked identical windows only once', async () => {
+    const p = player('I\'m not gonna lie,');
+    const container = p.querySelector('.ytp-caption-window-container')!;
+    container.append(container.querySelector('.caption-window')!.cloneNode(true));
+    const change = vi.fn();
+    observer = startCaptionObserver(change);
+    await frame();
+    expect(change.mock.calls.at(-1)?.[0]).toBe("I'm not gonna lie,");
+  });
+
   it('starts on home, follows watch SPA navigation, same-text video switches and departures', async () => {
     navigate('/');
     const change = vi.fn();

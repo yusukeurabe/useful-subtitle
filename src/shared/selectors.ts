@@ -35,4 +35,9 @@ export const YOUTUBE_PLAYER_SELECTOR = '#movie_player';
 export const YOUTUBE_CAPTION_SELECTORS: readonly string[] = [
   '#movie_player .ytp-caption-window-container .ytp-caption-segment',
 ];
+/**
+ * YouTube の字幕 1 枚分の描画層。装飾付き字幕では同じ字幕が影用・縁取り用の
+ * 2 枚の層として重ねて描かれるため、層単位で重複を除いて読む。
+ */
+export const YOUTUBE_CAPTION_LAYER_SELECTOR = '.caption-window';
 export const YOUTUBE_VIDEO_SELECTOR = '#movie_player video.html5-main-video';
