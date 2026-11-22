@@ -60,6 +60,15 @@ describe('buildExplanationPrompt', () => {
     expect(system).toContain('訳:');
   });
 
+  it('asks for an English definition after | on each POS line and on the phrase 訳 line', () => {
+    const word = buildExplanationPrompt('word', 'a sentence', 'ja').system;
+    expect(word).toContain('英語の定義');
+    expect(word).toMatch(/V\[I\/T\]: 走る・運営する \| .+/);
+    const phrase = buildExplanationPrompt('break a leg', 'a sentence', 'ja').system;
+    expect(phrase).toContain('英語の定義');
+    expect(phrase).toMatch(/訳: 幸運を祈る \| .+/);
+  });
+
   it('asks for up to 3 translations separated by ・', () => {
     const { system } = buildExplanationPrompt('word', 'a sentence', 'ja');
     expect(system).toMatch(/3つ/);

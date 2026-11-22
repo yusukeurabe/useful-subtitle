@@ -4,6 +4,8 @@ export interface WordSense {
   pos: string | null;
   /** その品詞の一般的な訳語（最大3つ・中黒区切り）。 */
   gloss: string;
+  /** その品詞の英語の定義（英英辞典風の短い1文）。旧キャッシュ等で無ければ省略。 */
+  definition?: string;
 }
 
 /** AI 解説レスポンスを「品詞ごとの訳(senses)」と「文脈依存の説明(explanation)」に分解した結果。 */
@@ -32,6 +34,17 @@ function normalizeGloss(raw: string): string {
 }
 
 /**
+ * 「日本語訳 | English definition」を分ける。英語側は "/" を含みうるので、
+ * 訳語の正規化（normalizeGloss）は日本語側だけにかける。定義が無ければ definition は付けない。
+ */
+function splitGlossAndDefinition(raw: string): { gloss: string; definition?: string } {
+  const [ja, ...rest] = raw.split(/\s*[|｜]\s*/);
+  const gloss = normalizeGloss(ja);
+  const definition = rest.join(' ').trim();
+  return definition ? { gloss, definition } : { gloss };
+}
+
+/**
  * AI の構造化レスポンスを分解する。
  * - 単語: 品詞ごとの行（"V[I/T]: 走る・運営する"）を senses に。
  * - フレーズ/旧キャッシュ: 品詞行が無く "訳:" があれば pos=null の 1 件にフォールバック。
@@ -52,17 +65,18 @@ export function parseExplanation(raw: string): ParsedExplanation {
   headLines.forEach((line, i) => {
     const m = line.match(POS_LINE);
     if (!m) return;
-    const gloss = normalizeGloss(m[2]);
+    const { gloss, definition } = splitGlossAndDefinition(m[2]);
     if (!gloss) return;
     consumed.add(i);
     // LLM が同じ品詞行を繰り返すことがある（then で "Adv.: …" が2行出た）。
-    // 同じ品詞は1行にまとめ、訳語は重複を除いて最大3つに丸める。
+    // 同じ品詞は1行にまとめ、訳語は重複を除いて最大3つに丸める。英語の定義は最初のものを残す。
     const same = senses.find((s) => s.pos === m[1]);
     if (same) {
       same.gloss = normalizeGloss(`${same.gloss}・${gloss}`.split('・').filter((t, j, a) => a.indexOf(t) === j).join('・'));
+      if (!same.definition && definition) same.definition = definition;
       return;
     }
-    senses.push({ pos: m[1], gloss });
+    senses.push(definition ? { pos: m[1], gloss, definition } : { pos: m[1], gloss });
   });
 
   // 品詞行が 1 つも無いときだけ、フレーズ/旧形式の "訳:" を 1 件として拾う。
@@ -70,9 +84,9 @@ export function parseExplanation(raw: string): ParsedExplanation {
     for (let i = 0; i < headLines.length; i++) {
       const m = headLines[i].match(GLOSS_LINE);
       if (!m) continue;
-      const gloss = normalizeGloss(m[1]);
+      const { gloss, definition } = splitGlossAndDefinition(m[1]);
       if (gloss) {
-        senses.push({ pos: null, gloss });
+        senses.push(definition ? { pos: null, gloss, definition } : { pos: null, gloss });
         consumed.add(i);
       }
       break;

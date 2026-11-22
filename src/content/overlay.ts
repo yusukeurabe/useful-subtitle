@@ -116,6 +116,10 @@ const STYLES = `
   font-family: "SF Mono", Menlo, Consolas, monospace;
 }
 .popup .senses .sense-gloss { color: #d8d8d8; font-size: 13px; }
+/* 英語の定義は訳語の真下（訳語と同じ 2 列目）に、一回り小さく控えめに出す。 */
+.popup .senses .sense-def {
+  grid-column: 2; color: #a9a9a9; font-size: 12px; line-height: 1.45; margin: -1px 0 3px;
+}
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
@@ -643,8 +647,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     }
     return wrap;
   };
-  // 結果の典型的な行数（プロンプトの指定：品詞は 1〜3 行、説明は 2〜4 文、一文の訳は 1 文）に合わせた見込み。
-  const SKELETON_SENSE_ROWS = 2;
+  // 結果の典型的な行数（プロンプトの指定：品詞は 1〜3 行＋それぞれ英語の定義 1 行、説明は 2〜4 文、一文の訳は 1 文）に合わせた見込み。
+  const SKELETON_SENSE_ROWS = 4;
   const SKELETON_BODY_LINES = 4;
   const SKELETON_SENTENCE_TRANS_LINES = 2;
   const SKELETON_SENTENCE_EXPL_LINES = 4;
@@ -740,6 +744,13 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
           gloss.className = 'sense-gloss';
           gloss.textContent = s.gloss;
           popupSenses.append(pos, gloss);
+          if (s.definition) {
+            const def = document.createElement('span');
+            def.className = 'sense-def';
+            def.lang = 'en';
+            def.textContent = s.definition;
+            popupSenses.appendChild(def);
+          }
         }
         popupSenses.style.display = '';
       } else {

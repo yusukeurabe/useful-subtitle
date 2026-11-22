@@ -15,7 +15,7 @@ const STORAGE_PREFIX = 'cache:';
  * 過去キャッシュは別キーに移るので破棄され、新プロンプトで再生成される。
  * （古いエントリは storage に残るが orphan として無視される。）
  */
-const EXPLANATION_PROMPT_VERSION = 'v2';
+const EXPLANATION_PROMPT_VERSION = 'v3';
 
 /**
  * リクエスト内容＋モデル＋（解説の）言語から決定的なキャッシュキーを作る。

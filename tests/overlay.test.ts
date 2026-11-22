@@ -950,8 +950,24 @@ describe('createOverlay — 読み込み中のスケルトン（結果と同じ�
     overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'Hello');
     const senses = shadow().querySelector<HTMLElement>('.popup .senses')!;
     expect(senses.style.display).toBe('');
-    expect(lines('.senses')).toBe(2);
+    expect(lines('.senses')).toBe(4);
     expect(lines('.body')).toBe(4);
+  });
+
+  it('英語の定義は日本語訳の下（同じ列）に出し、無い品詞では出さない', () => {
+    overlay!.openPopup(new DOMRect(500, 600, 60, 30), 'run');
+    overlay!.setPopupMeaning('説明。', [
+      { pos: 'V[I/T]', gloss: '走る', definition: 'to move quickly on foot' },
+      { pos: 'N[C]', gloss: '走ること' },
+    ]);
+    const cells = [...shadow().querySelectorAll('.popup .senses > *')].map((el) => [el.className, el.textContent]);
+    expect(cells).toEqual([
+      ['pos', 'V[I/T]'],
+      ['sense-gloss', '走る'],
+      ['sense-def', 'to move quickly on foot'],
+      ['pos', 'N[C]'],
+      ['sense-gloss', '走ること'],
+    ]);
   });
 
   it('解説が届いたらスケルトンを結果に差し替える', () => {

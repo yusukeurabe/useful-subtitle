@@ -79,6 +79,37 @@ describe('parseExplanation', () => {
     ]);
   });
 
+  it('splits an English definition after | from the Japanese gloss', () => {
+    const r = parseExplanation(
+      'V[I/T]: 走る・運営する | to move quickly on foot\nN[C]: 走ること｜an act of running\n説明: x',
+    );
+    expect(r.senses).toEqual([
+      { pos: 'V[I/T]', gloss: '走る・運営する', definition: 'to move quickly on foot' },
+      { pos: 'N[C]', gloss: '走ること', definition: 'an act of running' },
+    ]);
+  });
+
+  it('keeps slashes in the English definition (not treated as gloss separators)', () => {
+    const r = parseExplanation('N[C]: 入力 | data and/or commands put into a computer\n説明: x');
+    expect(r.senses).toEqual([
+      { pos: 'N[C]', gloss: '入力', definition: 'data and/or commands put into a computer' },
+    ]);
+  });
+
+  it('keeps the first English definition when a POS line is repeated', () => {
+    const r = parseExplanation('Adv.: その時 | at that time\nAdv.: それから | after that\n説明: x');
+    expect(r.senses).toEqual([
+      { pos: 'Adv.', gloss: 'その時・それから', definition: 'at that time' },
+    ]);
+  });
+
+  it('splits an English definition on a phrase 訳 line', () => {
+    const r = parseExplanation('訳: 幸運を祈る | used to wish someone good luck\n説明: x');
+    expect(r.senses).toEqual([
+      { pos: null, gloss: '幸運を祈る', definition: 'used to wish someone good luck' },
+    ]);
+  });
+
   it('returns empty for blank input', () => {
     const r = parseExplanation('   ');
     expect(r.senses).toEqual([]);
