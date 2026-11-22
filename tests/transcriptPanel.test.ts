@@ -1529,3 +1529,46 @@ describe('createTranscriptPanel — 履歴パネルのホバーで一時停止�
     }).not.toThrow();
   });
 });
+
+describe('createTranscriptPanel — 開閉トグルと開閉通知', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+  });
+
+  const root = (): ShadowRoot => document.getElementById(HOST_ID)!.shadowRoot!;
+  const panelHost = (): HTMLElement => root().querySelector<HTMLElement>('.host')!;
+  const reopenBtn = (): HTMLButtonElement => root().querySelector<HTMLButtonElement>('.reopen')!;
+  const closeBtn = (): HTMLButtonElement => root().querySelector<HTMLButtonElement>('.x')!;
+
+  it('toggleOpen で開閉し、そのたびに onOpenChange が呼ばれる', () => {
+    const changes: boolean[] = [];
+    panel = createTranscriptPanel({ onSeek: () => {}, onOpenChange: (o) => changes.push(o) });
+    expect(panelHost().style.display).toBe('none');
+    panel.toggleOpen();
+    expect(panelHost().style.display).toBe('');
+    panel.toggleOpen();
+    expect(panelHost().style.display).toBe('none');
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('☰ と Close で開閉したときも onOpenChange が呼ばれる', () => {
+    const changes: boolean[] = [];
+    panel = createTranscriptPanel({ onSeek: () => {}, onOpenChange: (o) => changes.push(o) });
+    reopenBtn().click();
+    closeBtn().click();
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('onOpenChange 未指定でも toggleOpen は例外を出さない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    expect(() => panel!.toggleOpen()).not.toThrow();
+  });
+});
