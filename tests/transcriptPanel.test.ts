@@ -438,7 +438,7 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
       onSeek: () => {},
       onExplainWord: async () => ({
         ok: true,
-        senses: [{ pos: 'V[I/T]', gloss: '壊す・破る' }],
+        senses: [{ pos: 'V[I/T]', gloss: '壊す・破る', definition: 'to separate into pieces' }],
         explanation: '単語ノート',
       }),
       onExplain: async () => ({ ok: true, translation: '頑張って！', explanation: '舞台前のイディオム。' }),
@@ -455,6 +455,9 @@ describe('createTranscriptPanel — 単語ホバーで2段ポップアップ（�
     expect(sections[0].querySelector('.hp-word-head')?.textContent).toBe('Break');
     expect(sections[0].textContent).toContain('V[I/T]');
     expect(sections[0].textContent).toContain('壊す・破る');
+    // 英語の定義は訳語の直後（下）に出る
+    expect(sections[0].querySelector('.hp-gloss')?.nextElementSibling?.className).toBe('hp-def');
+    expect(sections[0].querySelector('.hp-def')?.textContent).toBe('to separate into pieces');
     expect(sections[0].textContent).toContain('単語ノート');
     // 下段＝文セクション
     expect(sections[1].textContent).toContain('頑張って！');

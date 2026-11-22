@@ -211,6 +211,7 @@ const STYLES = `
   font-family: "SF Mono", Menlo, Consolas, monospace;
 }
 .hover-popup .hp-gloss { color: #d8d8d8; font-size: 12px; }
+.hover-popup .hp-def { grid-column: 2; color: #a9a9a9; font-size: 11px; line-height: 1.45; margin: -1px 0 3px; }
 .hover-popup .hp-trans { color: #ffe08a; white-space: pre-wrap; margin-bottom: 4px; }
 .hover-popup .hp-expl { white-space: pre-wrap; color: #cfcfcf; font-size: 12px; }
 .hover-popup .hp-body { white-space: pre-wrap; }
@@ -531,6 +532,13 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
         gloss.className = 'hp-gloss';
         gloss.textContent = s.gloss;
         senses.append(pos, gloss);
+        if (s.definition) {
+          const def = document.createElement('span');
+          def.className = 'hp-def';
+          def.lang = 'en';
+          def.textContent = s.definition;
+          senses.appendChild(def);
+        }
       }
       host.appendChild(senses);
     }
