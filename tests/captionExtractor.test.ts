@@ -66,4 +66,49 @@ describe('pickCaptionText', () => {
     addSpan('primary', '   ');
     expect(pickCaptionText(document, SEL)).toBeNull();
   });
+
+  it('removes zero-width spaces so they do not widen gaps or stick to words', () => {
+    addSpan('primary', '​ ​I\'m not gonna lie, ​ ​the driving​');
+    expect(pickCaptionText(document, SEL)).toBe("I'm not gonna lie, the driving");
+  });
+});
+
+// YouTube の装飾付き字幕（作成者がアップロードした影・縁取り付き字幕）は、同じ字幕を
+// 影用と縁取り用の 2 枚の .caption-window としてぴったり重ねて描画する（実機で確認）。
+describe('pickCaptionText with stacked caption layers', () => {
+  beforeEach(clearBody);
+
+  const LAYER = '.caption-window';
+  const YT_SEL = ['.ytp-caption-segment'];
+  const addWindow = (...lines: string[]): void => {
+    const win = document.createElement('div');
+    win.className = 'caption-window';
+    for (const line of lines) {
+      const seg = document.createElement('span');
+      seg.className = 'ytp-caption-segment';
+      seg.textContent = line;
+      win.appendChild(seg);
+    }
+    document.body.appendChild(win);
+  };
+
+  it('reads a caption drawn as two identical stacked windows only once', () => {
+    addWindow('​ ​I\'m not gonna lie, ​ ​', '​ ​the driving physics are insaaane.​ ​');
+    addWindow('​ ​I\'m not gonna lie, ​ ​', '​ ​the driving physics are insaaane.​ ​');
+    expect(pickCaptionText(document, YT_SEL, { layerSelector: LAYER }))
+      .toBe("I'm not gonna lie, the driving physics are insaaane.");
+  });
+
+  it('keeps separate windows that show different lines', () => {
+    addWindow('Top speaker');
+    addWindow('Bottom speaker');
+    expect(pickCaptionText(document, YT_SEL, { layerSelector: LAYER })).toBe('Top speaker Bottom speaker');
+  });
+
+  it('skips empty windows when comparing layers', () => {
+    addWindow('​');
+    addWindow('Hello');
+    addWindow('Hello');
+    expect(pickCaptionText(document, YT_SEL, { layerSelector: LAYER })).toBe('Hello');
+  });
 });
