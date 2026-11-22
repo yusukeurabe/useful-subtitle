@@ -208,6 +208,8 @@ const STYLES = `
 /* 行の単語以外ホバーで英文の下に差し込む和訳＋解説（出したまま残す）。 */
 .row .row-meaning { margin-top: 4px; }
 .row .row-meaning .rm-trans { font-size: 12px; line-height: 1.4; color: #ffe08a; white-space: pre-wrap; }
+/* 応答の後にデュアル字幕の和訳（.ja）が届いた行では、差し込んだ和訳を隠して重複させない。 */
+.row .ja:not(:empty) ~ .row-meaning .rm-trans { display: none; }
 .row .row-meaning .rm-expl { font-size: 11.5px; line-height: 1.45; color: #c8c8c8; white-space: pre-wrap; margin-top: 2px; }
 .row .row-meaning .rm-body { font-size: 12px; line-height: 1.4; white-space: pre-wrap; }
 .row .row-meaning .rm-body.loading { opacity: 0.7; }
@@ -348,11 +350,15 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   });
 
   const jaById = new Map<number, HTMLDivElement>();
-  /** 行の単語以外ホバーで差し込む和訳＋解説の状態。seq は古い応答を捨てるための世代番号。 */
+  /**
+   * 行の単語以外ホバーで差し込む和訳＋解説の状態。seq は古い応答を捨てるための世代番号。
+   * retryArmed はエラー後の再要求の許可。行を一度出る（mouseleave）まで再要求しない。
+   */
   interface RowMeaning {
     el: HTMLDivElement | null;
     state: 'loading' | 'done' | 'error' | null;
     seq: number;
+    retryArmed: boolean;
   }
   type RowItem = { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement; ja: HTMLDivElement; rm: RowMeaning };
   const entriesById = new Map<number, RowItem>();
@@ -585,6 +591,24 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     }
   };
 
+  // 同じ文の意味の取得中の要求。単語ポップアップと行の差し込み表示が同じ文を同時に
+  // 求めても API へは1回だけ送る（background のキャッシュは完了後にしか効かないため）。
+  // 決着（成功・失敗とも）したら外すので、以降の要求はキャッシュ側に任せる。
+  const explainInFlight = new Map<string, Promise<TranscriptMeaning>>();
+  const explainOnce = (sentence: string): Promise<TranscriptMeaning> => {
+    let p = explainInFlight.get(sentence);
+    if (!p) {
+      p = cb.onExplain!(sentence);
+      explainInFlight.set(sentence, p);
+      // 片付け用の then は失敗も受けるので、共有の promise から未処理の reject は出ない。
+      const forget = (): void => {
+        explainInFlight.delete(sentence);
+      };
+      p.then(forget, forget);
+    }
+    return p;
+  };
+
   /**
    * ホバーポップアップを開く（または現在のポップアップを別単語に差し替える）。
    * 単語の意味と文の意味を並行取得し、それぞれの応答が来た順に該当セクションを更新する。
@@ -636,7 +660,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       });
     }
     if (cb.onExplain) {
-      void cb.onExplain(sentence).then((res) => {
+      void explainOnce(sentence).then((res) => {
         if (seq !== hoverSeq || !hoverPopup) return;
         sentRes = res;
         rerender();
@@ -705,8 +729,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
 
   /** 行の英文の和訳＋解説を取得して差し込む。取得中・取得済みの行では何もしない。 */
   const openRowMeaning = (item: RowItem): void => {
-    const explain = cb.onExplain;
-    if (!explain) return;
+    if (!cb.onExplain) return;
     const { rm } = item;
     if (rm.state === 'loading' || rm.state === 'done') return;
     rm.el?.remove(); // 前回のエラー表示を作り直す
@@ -715,6 +738,9 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     item.row.appendChild(el);
     rm.el = el;
     rm.state = 'loading';
+    // ドウェル発火時はカーソルが行の中にいる。エラーになっても、行を一度出るまでは
+    // 再要求しない（エラーを読む間の小さな動きで AI 呼び出しが連発しないように）。
+    rm.retryArmed = false;
     const seq = ++rm.seq;
     // 追従中の最下行が伸びたら、伸びた分も見えるよう最下部へ送る。
     const settle = (res: TranscriptMeaning | null): void => {
@@ -722,7 +748,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       if (rows[rows.length - 1]?.el === item.row) followBottom();
     };
     settle(null);
-    void explain(item.entry.english).then(
+    void explainOnce(item.entry.english).then(
       (res) => {
         if (seq !== rm.seq) return; // 英文更新・全消去で無効化済み
         rm.state = res.ok ? 'done' : 'error';
@@ -756,10 +782,13 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     row.addEventListener('click', () => cb.onSeek(entry.videoTime));
     // 行から完全に出たらドウェルをキャンセルしてポップアップを閉じる。隣の行の単語に
     // 移ったときは、その単語の mouseenter が先に clearClose して即時で差し替わる。
+    // 行を出たらエラー後の再要求を許可する（戻ってきてマウスを動かせば取り直す）。
     row.addEventListener('mouseleave', () => {
       clearDwell();
       clearRowDwell();
       scheduleClose();
+      const item = entriesById.get(entry.id);
+      if (item) item.rm.retryArmed = true;
     });
     // 単語以外（語間・余白・行末の空き・和訳欄）でマウスを動かしたら行のドウェルを始める。
     // 単語に入ったら取り消す（単語の上は単語ポップアップの担当）。
@@ -773,6 +802,9 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
         return;
       }
       if (!cb.onExplain || rowDwellRow === row) return;
+      // 取得中・取得済みの行、行を出ていないエラー行ではドウェル自体を始めない。
+      const rm = entriesById.get(entry.id)?.rm;
+      if (rm && (rm.state === 'loading' || rm.state === 'done' || (rm.state === 'error' && !rm.retryArmed))) return;
       clearRowDwell();
       rowDwellRow = row;
       rowDwellTimer = setTimeout(() => {
@@ -787,7 +819,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const ja = document.createElement('div');
     ja.className = 'ja';
 
-    entriesById.set(entry.id, { entry, row, en, ja, rm: { el: null, state: null, seq: 0 } });
+    entriesById.set(entry.id, { entry, row, en, ja, rm: { el: null, state: null, seq: 0, retryArmed: false } });
     renderWords(entry, row, en);
 
     row.append(en, ja);

@@ -1191,6 +1191,86 @@ describe('createTranscriptPanel — 行の単語以外ホバーで和訳＋解�
     expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('再取得した和訳');
   });
 
+  it('エラー表示中に同じ行の中でマウスを動かしても再要求せず、行を出て戻ってから再要求する', async () => {
+    const onExplain = vi.fn().mockResolvedValue({ ok: false, error: '取得できませんでした' });
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    move(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+    expect(meaningOf(row)!.querySelector('.rm-body.err')).not.toBeNull();
+
+    // エラーを読んでいる間の小さな動きでは再要求しない
+    for (let i = 0; i < 4; i++) {
+      move(enOf(row));
+      await vi.advanceTimersByTimeAsync(300);
+    }
+    move(row);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+
+    row.dispatchEvent(new Event('mouseleave'));
+    move(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(2);
+  });
+
+  it('単語ポップアップと行の表示が同じ文を同時に要求しても onExplain は1回だけ呼ばれ、両方に結果が出る', async () => {
+    let resolve: (v: TranscriptMeaning) => void = () => {};
+    const onExplain = vi.fn(() => new Promise<TranscriptMeaning>((r) => { resolve = r; }));
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Break a leg!', videoTime: 1 });
+    const row = rowsOf()[0];
+
+    wordsOf(row)[0].dispatchEvent(new Event('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+    expect(shadow().querySelector('.hover-popup')).not.toBeNull();
+
+    move(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+    expect(meaningOf(row)!.querySelector('.rm-body.loading')).not.toBeNull();
+
+    resolve({ ok: true, translation: '頑張って！', explanation: '舞台前のイディオム。' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(shadow().querySelector('.hover-popup')!.textContent).toContain('頑張って！');
+    expect(meaningOf(row)!.querySelector('.rm-trans')!.textContent).toBe('頑張って！');
+
+    // 決着後は共有が外れ、別の要求は改めて onExplain に届く
+    panel.append({ id: 2, english: 'Break a leg!', videoTime: 2 });
+    move(enOf(rowsOf()[1]));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(2);
+  });
+
+  it('取得済み・取得中の行ではマウスを動かしてもドウェルを始めない', async () => {
+    let resolve: (v: TranscriptMeaning) => void = () => {};
+    const onExplain = vi.fn(() => new Promise<TranscriptMeaning>((r) => { resolve = r; }));
+    panel = createTranscriptPanel({ onSeek: () => {}, onExplain });
+    panel.append({ id: 1, english: 'Hello there', videoTime: 1 });
+    const row = rowsOf()[0];
+    const spy = vi.spyOn(globalThis, 'setTimeout');
+
+    move(enOf(row));
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onExplain).toHaveBeenCalledTimes(1);
+
+    spy.mockClear();
+    move(enOf(row)); // 取得中
+    expect(spy).not.toHaveBeenCalled();
+
+    resolve({ ok: true, translation: 'やあ', explanation: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    spy.mockClear();
+    move(enOf(row)); // 取得済み
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+    expect(onExplain).toHaveBeenCalledTimes(1);
+  });
+
   it('onExplain が reject してもエラー表示になり、例外を外へ出さない', async () => {
     panel = createTranscriptPanel({ onSeek: () => {}, onExplain: () => Promise.reject(new Error('boom')) });
     panel.append({ id: 1, english: 'Hello there', videoTime: 1 });

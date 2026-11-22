@@ -1,5 +1,7 @@
 # 字幕履歴の行ホバーで和訳＋解説 Implementation Plan
 
+> **注記（レビュー後の変更）:** レビューの指摘で、発火のきっかけを `mouseover` から `mousemove` に変更し、単語ポップアップとの同じ文の取得中要求の共有と、エラー後は行を出て戻るまで再要求しない制御を追加した（最新の仕様は設計書を参照。本文は当初の計画のまま）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 字幕履歴パネルの行の「単語以外の場所」に 500ms カーソルを置くと、その行の英文の下に和訳＋解説を差し込み、出したまま残す。
