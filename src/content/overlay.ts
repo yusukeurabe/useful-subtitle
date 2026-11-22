@@ -96,8 +96,10 @@ const STYLES = `
 }
 .translation.loading { opacity: 0.6; }
 .translation:empty { display: none; }
+/* 幅は内容によらず固定する（読み込み中→結果で幅が変わると、中央寄せの位置ごと単語・発音記号が横にずれるため）。
+   border-box なので min-height/max-height の px がそのまま見た目の高さになる。 */
 .popup {
-  position: fixed; max-width: 360px; min-width: 200px;
+  position: fixed; box-sizing: border-box; width: 404px; max-width: calc(100% - 16px);
   background: #1e1e1e; color: #f3f3f3; border: 1px solid #444; border-radius: 10px;
   padding: 12px 28px 12px 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   font-size: 14px; line-height: 1.6; pointer-events: auto;
@@ -117,6 +119,17 @@ const STYLES = `
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
+/* 読み込み中のスケルトン。1 本の高さ＝その場所に入る文字 1 行ぶん（font-size×line-height）にして、
+   結果が届いて文字に置き換わっても背の高さがほぼ変わらないようにする。 */
+.popup .senses .skeleton { grid-column: 1 / -1; display: grid; row-gap: 2px; font-size: 13px; }
+.popup .skel-line { height: 1.6em; display: flex; align-items: center; }
+.popup .skel-line::before {
+  content: ''; display: block; width: 100%; height: 0.8em; border-radius: 4px;
+  background: #343434; animation: us-skel-pulse 1.2s ease-in-out infinite;
+}
+.popup .skel-line:last-child::before { width: 60%; }
+.popup .senses .skel-line::before { width: 55%; }
+@keyframes us-skel-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 /* 下段：いま表示中の字幕一文の和訳＋解説（字幕一覧のホバーポップアップ下段と同じ見せ方）。 */
 .popup .sentence { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3a3a3a; }
 .popup .sentence .s-label { font-size: 11px; color: #8ab4ff; font-weight: 700; margin-bottom: 2px; }
@@ -394,6 +407,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   let popupAnchor: DOMRect | null = null;
   let popupSelection = '';
   let popupAudioUrl: string | null = null;
+  /** 開いているポップアップがこれまでに取った最大の高さ（px）。内容が縮んでもこの高さを保つ。 */
+  let popupLockedHeight = 0;
   let currentSentence = '';
   // 現在表示中の字幕が現れた瞬間の動画位置（秒）。▶クリックでこの値にシークする。
   let currentLineVideoTime = 0;
@@ -571,9 +586,16 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     const bounds = youtube ? host.getBoundingClientRect() : new DOMRect(0, 0, window.innerWidth, window.innerHeight);
     const fullHeight = bounds.height - margin * 2;
     // 内容が更新されるたびに呼ばれるので、まず本来の高さを測れる状態に戻す。
+    popup.style.minHeight = '';
     constrainPopupHeight(youtube ? fullHeight : null);
     const pw = popup.offsetWidth;
-    let ph = popup.offsetHeight;
+    const natural = popup.offsetHeight;
+    // 開いている間は背を縮めない。字幕の上に置くと下端がそろうので、背が縮むと単語・発音記号が
+    // 下へずれる。読み込み中のスケルトンで見込んだ高さを保ったまま結果に差し替える。
+    popupLockedHeight = Math.max(popupLockedHeight, natural);
+    const locked = youtube ? Math.min(popupLockedHeight, fullHeight) : popupLockedHeight;
+    if (locked > natural) popup.style.minHeight = `${locked}px`;
+    let ph = Math.max(natural, locked);
     let left = anchor.left - bounds.left + anchor.width / 2 - pw / 2;
     left = Math.max(margin, Math.min(left, bounds.width - pw - margin));
 
@@ -591,6 +613,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
       top = avoidBottom + margin;
     } else if (Math.max(spaceAbove, spaceBelow) >= MIN_AVOID_POPUP_HEIGHT) {
       const above = spaceAbove >= spaceBelow;
+      popup.style.minHeight = ''; // min-height は max-height より優先されるので、詰めるときは外す。
       constrainPopupHeight(above ? spaceAbove : spaceBelow);
       ph = popup.offsetHeight;
       top = above ? avoidTop - margin - ph : avoidBottom + margin;
@@ -604,11 +627,34 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popup.style.top = `${top}px`;
   };
 
-  // ヘッダ（×・選択語・IPA・操作列）は安定して残り、本文だけ「考え中…」→結果/エラーへ更新する。
+  /**
+   * 読み込み中のスケルトン（文字 1 行ぶんの高さのバーを count 本）。AI の結果が入る場所に、
+   * 結果とほぼ同じ高さで先に置いておき、結果が届いてもポップアップの大きさ・要素の位置が変わらないようにする。
+   */
+  const createSkeleton = (count: number): HTMLDivElement => {
+    const wrap = document.createElement('div');
+    wrap.className = 'skeleton';
+    wrap.setAttribute('role', 'status');
+    wrap.setAttribute('aria-label', 'Thinking…');
+    for (let i = 0; i < count; i++) {
+      const line = document.createElement('div');
+      line.className = 'skel-line';
+      wrap.appendChild(line);
+    }
+    return wrap;
+  };
+  // 結果の典型的な行数（プロンプトの指定：品詞は 1〜3 行、説明は 2〜4 文、一文の訳は 1 文）に合わせた見込み。
+  const SKELETON_SENSE_ROWS = 2;
+  const SKELETON_BODY_LINES = 4;
+  const SKELETON_SENTENCE_TRANS_LINES = 2;
+  const SKELETON_SENTENCE_EXPL_LINES = 4;
+
+  // ヘッダ（×・選択語・IPA・操作列）は安定して残り、AI の結果が入る場所はスケルトン→結果/エラーへ差し替える。
   function openPopup(anchor: DOMRect, selection: string): number {
     popupGeneration++;
     const p = ensurePopup();
     p.replaceChildren();
+    popupLockedHeight = 0;
     popupAnchor = anchor;
     popupSelection = selection;
     popupAudioUrl = null;
@@ -627,10 +673,10 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     sel.appendChild(selWord);
     p.appendChild(sel);
 
-    // 単語の下に「品詞ごとの訳」グリッド（AI 応答が来たら setPopupMeaning で埋める）。
+    // 単語の下に「品詞ごとの訳」グリッド（AI 応答が来たら setPopupMeaning で埋める。それまではスケルトン）。
     popupSenses = document.createElement('div');
     popupSenses.className = 'senses';
-    popupSenses.style.display = 'none';
+    popupSenses.appendChild(createSkeleton(SKELETON_SENSE_ROWS));
     p.appendChild(popupSenses);
 
     // 🔊 と IPA を 1 行に並べる（🔊 は常時、IPA は取得後のみ表示）。
@@ -664,7 +710,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
     popupBody = document.createElement('div');
     popupBody.className = 'body loading';
-    popupBody.textContent = 'Thinking…';
+    popupBody.appendChild(createSkeleton(SKELETON_BODY_LINES));
     p.appendChild(popupBody);
 
     // 下段＝いま表示中の字幕一文の和訳＋解説。setPopupSentence が呼ばれるまで隠す。
@@ -707,6 +753,11 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (!popupBody) return;
     popupBody.className = 'body err';
     popupBody.textContent = message;
+    // 品詞の訳は届かないので、読み込み中のスケルトンを消す（高さは popupLockedHeight で保たれる）。
+    if (popupSenses) {
+      popupSenses.replaceChildren();
+      popupSenses.style.display = 'none';
+    }
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
@@ -730,10 +781,17 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     sec.replaceChildren();
     sec.hidden = false;
     if (meaning === null) {
-      const loading = document.createElement('div');
-      loading.className = 'body loading';
-      loading.textContent = 'Thinking…';
-      sec.appendChild(loading);
+      // 結果と同じ並び（ラベル「和訳」→訳→解説）でスケルトンを置き、届いても高さが変わらないようにする。
+      const label = document.createElement('div');
+      label.className = 's-label';
+      label.textContent = '和訳';
+      const trans = document.createElement('div');
+      trans.className = 's-trans';
+      trans.appendChild(createSkeleton(SKELETON_SENTENCE_TRANS_LINES));
+      const expl = document.createElement('div');
+      expl.className = 's-expl';
+      expl.appendChild(createSkeleton(SKELETON_SENTENCE_EXPL_LINES));
+      sec.append(label, trans, expl);
     } else if (!meaning.ok) {
       const err = document.createElement('div');
       err.className = 'body err';
@@ -777,6 +835,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popupSentence = null;
     popupAnchor = null;
     popupAudioUrl = null;
+    popupLockedHeight = 0;
     clearHighlight();
     if (wasOpen && !inSubtitle) callbacks.onHoverEnd?.({ resume });
   }
