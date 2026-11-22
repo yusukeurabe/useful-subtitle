@@ -504,6 +504,78 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     expect(buttons().map((b) => b.title)).toEqual(['5秒戻る', '10秒戻る']);
   });
 
+  it('↺5 と ↺10 は隣同士で、その右隣（画面中央）に字幕位置のつまみが置かれる', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const kids = [...bar().children] as HTMLElement[];
+    expect(kids.map((k) => k.textContent)).toEqual(['↺5', '↺10', '⠿']);
+    expect(kids[2].classList.contains('pos-handle')).toBe(true);
+    expect(kids[2].title).toBe('ドラッグで字幕を上下に移動');
+  });
+
+  it('つまみの中心が画面中央に来るよう、バーの右端を 50% + つまみ幅の半分に合わせる', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const css = shadow().querySelector('style')!.textContent ?? '';
+    expect(css).toMatch(/\.rewind-bar \.bar-handle\s*\{[^}]*width:\s*28px/);
+    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 14px\)\)/);
+  });
+
+  describe('下のつまみのドラッグ', () => {
+    const barHandle = (): HTMLElement => bar().querySelector<HTMLElement>('.pos-handle')!;
+    const bottom = (): number =>
+      parseFloat(shadow().querySelector<HTMLElement>('.subtitle')!.style.bottom);
+    const pointer = (target: EventTarget, type: string, clientY: number): PointerEvent => {
+      const e = new PointerEvent(type, {
+        pointerId: 1, button: 0, clientY, bubbles: true, composed: true, cancelable: true,
+        buttons: type === 'pointerup' || type === 'pointercancel' ? 0 : 1,
+      });
+      target.dispatchEvent(e);
+      return e;
+    };
+    const setup = (): number[] => {
+      const saved: number[] = [];
+      overlay = createOverlay(noopCallbacks(), {
+        bottomPercent: 10,
+        onBottomChange: (p) => saved.push(p),
+      });
+      document.getElementById(HOST_ID)!.getBoundingClientRect = () => new DOMRect(0, 0, 800, 1000);
+      overlay.renderLine('Hello, world.', tokenizeLine('Hello, world.'), 0);
+      return saved;
+    };
+
+    it('ドラッグで字幕とバーが一緒に動き、離したときに 1 回だけ保存する', () => {
+      const saved = setup();
+      const down = pointer(barHandle(), 'pointerdown', 500);
+      expect(down.defaultPrevented).toBe(true);
+      pointer(document, 'pointermove', 400);
+      expect(bottom()).toBeCloseTo(20);
+      expect(parseFloat(bar().style.getPropertyValue('--sub-bottom'))).toBeCloseTo(20);
+      expect(saved).toEqual([]);
+      pointer(document, 'pointerup', 400);
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toBeCloseTo(20);
+    });
+
+    it('字幕が消えている合間でもドラッグできる', () => {
+      const saved = setup();
+      overlay!.clearLine();
+      pointer(barHandle(), 'pointerdown', 500);
+      pointer(document, 'pointermove', 300);
+      pointer(document, 'pointerup', 300);
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toBeCloseTo(30);
+    });
+
+    it('つまみを押しても巻き戻しは呼ばれない', () => {
+      const rewinds: number[] = [];
+      overlay = createOverlay(
+        { ...noopCallbacks(), onRewind: (s) => rewinds.push(s) },
+        { bottomPercent: 10, onBottomChange: () => {} },
+      );
+      barHandle().click();
+      expect(rewinds).toEqual([]);
+    });
+  });
+
   it('クリックで onRewind が 5 / 10 で呼ばれる', () => {
     const rewinds: number[] = [];
     overlay = createOverlay(

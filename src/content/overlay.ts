@@ -157,9 +157,11 @@ const STYLES = `
 .pos-handle:hover { background: rgba(86, 156, 255, 0.85); }
 /* 字幕の真下に置く巻き戻しボタン。.subtitle の外の別要素なので字幕が消えても残る。
    --sub-bottom は字幕の bottom（%）。36px = ボタン高さ 32px + すき間 4px で、
-   字幕を一番下まで下げたときは 4px で止まり字幕に少し重なる。 */
+   字幕を一番下まで下げたときは 4px で止まり字幕に少し重なる。
+   右端のつまみ（幅 28px）の中心を画面中央に置くため、バーの右端を 50% + 14px に合わせる
+   （= 自分の幅だけ左へずらして 14px 戻す）。つまみの幅を変えたら 14px も合わせること。 */
 .rewind-bar {
-  position: fixed; left: 50%; transform: translateX(-50%);
+  position: fixed; left: 50%; transform: translateX(calc(-100% + 14px));
   bottom: max(4px, calc(var(--sub-bottom) - 36px));
   display: flex; gap: 6px; pointer-events: auto;
   opacity: 0.35; transition: opacity 0.2s;
@@ -174,6 +176,8 @@ const STYLES = `
   cursor: pointer;
 }
 .rewind-btn:hover { background: rgba(86, 156, 255, 0.85); }
+/* 巻き戻しボタンの右隣（画面中央）に置く字幕位置のつまみ。ボタンと高さをそろえる。 */
+.rewind-bar .bar-handle { width: 28px; height: 32px; line-height: 32px; }
 `;
 
 interface WordRef {
@@ -212,7 +216,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   rewindBar.className = 'rewind-bar';
   rewindBar.hidden = true;
   if (youtube) rewindBar.style.position = 'absolute';
-  for (const seconds of [5, 10]) {
+  const makeRewindBtn = (seconds: number): HTMLButtonElement => {
     const btn = document.createElement('button');
     btn.className = 'rewind-btn';
     btn.textContent = `↺${seconds}`;
@@ -224,8 +228,23 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
       hidePopup(false);
       callbacks.onRewind?.(seconds);
     });
-    rewindBar.appendChild(btn);
-  }
+    return btn;
+  };
+  const makePosHandle = (): HTMLDivElement => {
+    const handle = document.createElement('div');
+    handle.className = 'pos-handle';
+    handle.textContent = '⠿';
+    handle.title = 'ドラッグで字幕を上下に移動';
+    // pointerdown の処理は「字幕位置のドラッグ」の節で登録する。
+    handle.addEventListener('pointerdown', (e) => startPosDrag(e));
+    return handle;
+  };
+  // 右側のつまみと同じものをバーの右端に置き、CSS でつまみの中心を画面中央に合わせる
+  // （巻き戻しボタンはその左隣に並ぶ）。バーは --sub-bottom で字幕に付いて動くので、
+  // ドラッグ中もつまみがカーソルに追従する。
+  const barHandle = makePosHandle();
+  barHandle.classList.add('bar-handle');
+  rewindBar.append(makeRewindBtn(5), makeRewindBtn(10), barHandle);
 
   let bottomPercent = options.bottomPercent;
   const applyBottom = (): void => {
@@ -253,11 +272,8 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   downBtn.textContent = '▼';
   downBtn.title = '字幕を下へ';
   downBtn.addEventListener('click', () => move(-STEP));
-  // ドラッグで上下に動かすつまみ。処理は「字幕位置のドラッグ」の節で登録する。
-  const posHandle = document.createElement('div');
-  posHandle.className = 'pos-handle';
-  posHandle.textContent = '⠿';
-  posHandle.title = 'ドラッグで字幕を上下に移動';
+  // ドラッグで上下に動かすつまみ。
+  const posHandle = makePosHandle();
   posControls.append(upBtn, posHandle, downBtn);
   subtitle.appendChild(posControls);
   applyBottom();
@@ -644,19 +660,21 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (!inSubtitle && !popup) callbacks.onHoverEnd?.({ resume: true });
   };
 
-  posHandle.addEventListener('pointerdown', (e) => {
+  // 右側のつまみ・巻き戻しバー中央のつまみの両方から呼ばれる。
+  function startPosDrag(e: PointerEvent): void {
     if (e.button !== 0 || posDrag) return;
     // pointerdown 由来の再生/停止の切り替えや文字選択を起こさない。
     e.preventDefault();
     e.stopPropagation();
-    // 字幕だけ動いてポップアップが取り残されないよう閉じる。つまみは字幕枠の中なので
-    // inSubtitle は true のままで、ホバー終了は通知されない。
+    // 字幕だけ動いてポップアップが取り残されないよう閉じる。右側のつまみは字幕枠の中なので
+    // inSubtitle は true のままで、ホバー終了は通知されない。バー中央のつまみは枠外なので
+    // ここと onPosDragEnd でホバー終了が通知されうるが、ホバー停止中でなければ hoverPause 側は何もしない。
     hidePopup(false);
     posDrag = { pointerId: e.pointerId, startY: e.clientY, startBottom: bottomPercent };
     document.addEventListener('pointermove', onPosDragMove, true);
     document.addEventListener('pointerup', onPosDragEnd, true);
     document.addEventListener('pointercancel', onPosDragEnd, true);
-  });
+  }
 
   // --- マウント & 全画面追従 ---
   const attach = (): void => {
