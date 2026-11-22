@@ -40,7 +40,7 @@
 
 ### `src/content/index.ts`
 
-- `createOverlay` のコールバックに `onRewind: rewindVideo` を渡す（YouTube 側の生成箇所も同様）。
+- `createOverlay` のコールバック（Prime・YouTube 共通の 1 箇所）に `onRewind: rewindVideo` を渡す。
 
 ## エラー・端の扱い
 
@@ -56,4 +56,4 @@
 
 ## バージョン
 
-PR 作成時に新機能として `0.3.x → 0.4.0`（manifest.json・package.json）。
+PR 作成時に新機能として `0.3.0 → 0.4.0`（manifest.json・package.json）。
