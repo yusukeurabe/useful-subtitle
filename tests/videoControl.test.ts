@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { pickBestVideo, resumeVideo, seekVideo, type VideoLike } from '../src/content/videoControl';
+import { pickBestVideo, resumeVideo, rewindVideo, seekVideo, type VideoLike } from '../src/content/videoControl';
 
 /** 既定は「停止中・未再生・未描画」のダミー。必要な項目だけ上書きする。 */
 const v = (o: Partial<VideoLike>): VideoLike => ({
@@ -111,6 +111,67 @@ describe('seekVideo — シークしてその地点から再生再開', () => {
   it('video が無ければ何もしない（例外を出さず play も呼ばない）', () => {
     document.body.replaceChildren();
     expect(() => seekVideo(10)).not.toThrow();
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('rewindVideo — 現在位置から指定秒だけ戻して再生', () => {
+  let video: HTMLVideoElement;
+  let current: number;
+  let setTimes: number[];
+  let playSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    current = 0;
+    setTimes = [];
+    playSpy = vi.fn(() => Promise.resolve());
+    video = document.createElement('video');
+    // jsdom は currentTime/play を実装しないので差し替える。
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      get: () => current,
+      set: (t: number) => {
+        current = t;
+        setTimes.push(t);
+      },
+    });
+    Object.defineProperty(video, 'paused', { configurable: true, value: true });
+    video.play = playSpy as unknown as HTMLVideoElement['play'];
+    document.body.appendChild(video);
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('現在位置から 5 秒戻す', () => {
+    current = 42;
+    rewindVideo(5);
+    expect(setTimes).toEqual([37]);
+  });
+
+  it('現在位置から 10 秒戻す', () => {
+    current = 42;
+    rewindVideo(10);
+    expect(setTimes).toEqual([32]);
+  });
+
+  it('0 秒より前には戻らない', () => {
+    current = 3;
+    rewindVideo(10);
+    expect(setTimes).toEqual([0]);
+  });
+
+  it('戻した後に再生する（停止中は Prime が絵を描き直さないため）', () => {
+    current = 20;
+    rewindVideo(5);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('video が無ければ何もしない（例外を出さず play も呼ばない）', () => {
+    document.body.replaceChildren();
+    expect(() => rewindVideo(5)).not.toThrow();
     expect(playSpy).not.toHaveBeenCalled();
   });
 });
