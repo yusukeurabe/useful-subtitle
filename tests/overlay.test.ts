@@ -611,7 +611,7 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
 
   const bar = (): HTMLElement => shadow().querySelector<HTMLElement>('.rewind-bar')!;
   const buttons = (): HTMLButtonElement[] =>
-    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn:not(.play-toggle)')];
+    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn:not(.play-toggle):not(.list-toggle)')];
 
   it('↺5 と ↺10 のボタンが並ぶ', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
@@ -636,6 +636,83 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     expect(css).toMatch(/\.play-toggle\s*\{[^}]*width:\s*44px/);
     expect(css).toMatch(/\.rewind-bar\s*\{[^}]*gap:\s*6px/);
     expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 56px\)\)/);
+  });
+
+  describe('字幕リストの開閉ボタン', () => {
+    const listToggle = (): HTMLButtonElement | null =>
+      bar().querySelector<HTMLButtonElement>('.list-toggle');
+    const withList = (onToggleTranscript: () => void = () => {}): Overlay =>
+      createOverlay(
+        { ...noopCallbacks(), onToggleTranscript },
+        { bottomPercent: 10, onBottomChange: () => {} },
+      );
+
+    it('onToggleTranscript 指定時は再生/一時停止とつまみの間に並ぶ', () => {
+      overlay = withList();
+      const kids = [...bar().children] as HTMLElement[];
+      expect(kids).toHaveLength(5);
+      expect(kids[2].classList.contains('play-toggle')).toBe(true);
+      expect(kids[3].classList.contains('list-toggle')).toBe(true);
+      expect(kids[4].classList.contains('pos-handle')).toBe(true);
+      expect(bar().classList.contains('has-list')).toBe(true);
+    });
+
+    it('onToggleTranscript 未指定ならボタンを出さず、配置も従来どおり', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      expect(listToggle()).toBeNull();
+      expect(bar().classList.contains('has-list')).toBe(false);
+    });
+
+    it('再生/一時停止ボタンが中央に残るよう、ボタンありではバーの右端を 50% + 98px に合わせる', () => {
+      overlay = withList();
+      const css = shadow().querySelector('style')!.textContent ?? '';
+      // 98 = 再生ボタン幅 44 の半分 22 + すき間 6 + 開閉ボタン幅 36 + すき間 6 + つまみ幅 28
+      expect(css).toMatch(/\.list-toggle\s*\{[^}]*width:\s*36px/);
+      expect(css).toMatch(/\.rewind-bar\.has-list\s*\{[^}]*transform:\s*translateX\(calc\(-100% \+ 98px\)\)/);
+    });
+
+    it('クリックで onToggleTranscript が呼ばれる', () => {
+      let toggles = 0;
+      overlay = withList(() => toggles++);
+      listToggle()!.click();
+      expect(toggles).toBe(1);
+    });
+
+    it('初期は閉じた状態で、setTranscriptOpen で点灯とラベルが切り替わる', () => {
+      overlay = withList();
+      const btn = listToggle()!;
+      expect(btn.classList.contains('open')).toBe(false);
+      expect(btn.getAttribute('aria-pressed')).toBe('false');
+      expect(btn.title).toBe('字幕リストを開く');
+      expect(btn.querySelector('svg')).not.toBeNull();
+      overlay.setTranscriptOpen(true);
+      expect(btn.classList.contains('open')).toBe(true);
+      expect(btn.getAttribute('aria-pressed')).toBe('true');
+      expect(btn.title).toBe('字幕リストを閉じる');
+      expect(btn.getAttribute('aria-label')).toBe('字幕リストを閉じる');
+      overlay.setTranscriptOpen(false);
+      expect(btn.classList.contains('open')).toBe(false);
+      expect(btn.title).toBe('字幕リストを開く');
+    });
+
+    it('ボタンが無いときの setTranscriptOpen は例外を出さない', () => {
+      overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+      expect(() => overlay!.setTranscriptOpen(true)).not.toThrow();
+    });
+
+    it('mousedown の既定動作を止め、クリックでフォーカスを取らない', () => {
+      overlay = withList();
+      const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      listToggle()!.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('クリックで開いている単語ポップアップを閉じる', () => {
+      overlay = withList();
+      overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+      listToggle()!.click();
+      expect(shadow().querySelector('.popup')).toBeNull();
+    });
   });
 
   describe('再生/一時停止ボタン', () => {

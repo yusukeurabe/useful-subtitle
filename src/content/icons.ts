@@ -38,6 +38,11 @@ export function createPauseIcon(size = 16): SVGSVGElement {
   return createFilledIcon(size, ['M6 4.5h4v15H6z', 'M14 4.5h4v15h-4z']);
 }
 
+/** 字幕リストの開閉ボタン用のリストアイコン（線画 SVG の横線3本）。 */
+export function createListIcon(size = 16): SVGSVGElement {
+  return createLineIcon(size, ['M5 7h14', 'M5 12h14', 'M5 17h14']);
+}
+
 /** 24x24 の塗りつぶしアイコンを作る共通処理。色は currentColor に従う。 */
 function createFilledIcon(size: number, paths: string[]): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, 'svg');
