@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { CaptionContext } from '../src/content/captionObserver';
+import type { CaptionContext, CaptionObserver } from '../src/content/captionObserver';
+import type { Overlay } from '../src/content/overlay';
 
 const mocks = vi.hoisted(() => ({
   observe: vi.fn(),
-  overlay: { renderLine: vi.fn(), clearLine: vi.fn(), setTranslation: vi.fn(), syncMount: vi.fn() },
+  overlay: { renderLine: vi.fn(), clearLine: vi.fn(), setTranslation: vi.fn(), setPlaying: vi.fn(), syncMount: vi.fn() },
   panel: { clear: vi.fn(), append: vi.fn(), setTranslation: vi.fn(), updateActiveByTime: vi.fn(), setVisible: vi.fn() },
   request: vi.fn(),
   createPanel: vi.fn(),
@@ -19,6 +20,7 @@ const listeners: [string, EventListenerOrEventListenerObject, boolean | AddEvent
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
+  mocks.observe.mockReset();
   mocks.createPanel.mockReturnValue(mocks.panel);
   mocks.createOverlay.mockReturnValue(mocks.overlay);
   const add = document.addEventListener.bind(document);
@@ -53,6 +55,75 @@ async function bootWithSettings(settings: Record<string, unknown>) {
     overlayCallbacks: mocks.createOverlay.mock.calls[0][0],
   };
 }
+
+it.each([
+  {
+    url: 'https://www.youtube.com/watch?v=first',
+    player: 'id="movie_player"',
+    button: 'class="ytp-subtitles-button"',
+    attribute: 'aria-pressed',
+    on: 'true',
+    off: 'false',
+    captionContainer: 'ytp-caption-window-container',
+    captionClass: 'ytp-caption-segment',
+  },
+  {
+    url: 'https://www.primevideo.com/detail/B0FIRST',
+    player: 'class="atvwebplayersdk-player-container"',
+    button: '',
+    attribute: 'aria-label',
+    on: 'Turn off subtitles',
+    off: 'Turn on subtitles',
+    captionContainer: 'atvwebplayersdk-captions-overlay',
+    captionClass: 'atvwebplayersdk-captions-text',
+  },
+])('hides subtitle controls on $url when captions are switched off between lines', async (site) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('location', new URL(site.url));
+  document.body.innerHTML = `<div ${site.player}>
+    <button ${site.button} ${site.attribute}="${site.on}"></button>
+    <div class="${site.captionContainer}"><span class="${site.captionClass}">Hello</span></div>
+  </div>`;
+  const caption = document.querySelector(`.${site.captionClass}`)!;
+  const toggle = document.querySelector('button')!;
+  const { startCaptionObserver } = await vi.importActual<typeof import('../src/content/captionObserver')>('../src/content/captionObserver');
+  const { createOverlay } = await vi.importActual<typeof import('../src/content/overlay')>('../src/content/overlay');
+  let observer: CaptionObserver | undefined;
+  let overlay: Overlay | undefined;
+  mocks.observe.mockImplementation(onChange => (observer = startCaptionObserver(onChange)));
+  mocks.createOverlay.mockImplementation((callbacks, options) => (overlay = createOverlay(callbacks, options)));
+  await chrome.storage.local.set({ showTranscriptPanel: false, dualSubtitle: false });
+  const nextFrame = async (): Promise<void> => {
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(20);
+  };
+  try {
+    await import('../src/content/index');
+    await nextFrame();
+    const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
+    const bar = shadow.querySelector<HTMLElement>('.rewind-bar')!;
+    expect(bar.hidden).toBe(false);
+
+    caption.textContent = '';
+    await nextFrame();
+    expect(bar.hidden).toBe(false);
+
+    toggle.setAttribute(site.attribute, site.off);
+    await nextFrame();
+    expect(bar.hidden).toBe(true);
+
+    caption.textContent = 'Caption left in the player';
+    await nextFrame();
+    expect(bar.hidden).toBe(true);
+
+    toggle.setAttribute(site.attribute, site.on);
+    await nextFrame();
+    expect(bar.hidden).toBe(false);
+  } finally {
+    observer?.stop();
+    overlay?.destroy();
+  }
+});
 
 it('pauses the video on a history word click when auto pause is on', async () => {
   const { pause, callbacks } = await bootWithAutoPause(true);
@@ -91,7 +162,7 @@ it('keeps progressive YouTube words in one history row with the original seek ti
   mocks.request.mockImplementation(() => new Promise(resolve => responses.push(resolve)));
   await import('../src/content/index'); await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  const context = { contentId: 'youtube:rolling', active: true, isAd: false, player };
+  const context = { contentId: 'youtube:rolling', active: true, isAd: false, captionsOff: false, player };
   const captions = ['Good', 'Good ', 'Good morning,', 'Good morning, sleepy',
     'Good morning, sleepy heads.', 'Good morning, sleepy heads. It',
     'Good morning, sleepy heads. It is', 'Good morning, sleepy heads. It is day',
@@ -135,7 +206,7 @@ it('integrates immediate English, debounce, stale response guards, ads and same-
   await import('../src/content/index');
   await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  let context: CaptionContext = { contentId: 'youtube:first', active: true, isAd: false, player };
+  let context: CaptionContext = { contentId: 'youtube:first', active: true, isAd: false, captionsOff: false, player };
   video.currentTime = 10;
   emit('Hello', context);
   expect(mocks.overlay.renderLine).toHaveBeenLastCalledWith('Hello', expect.anything(), 10);
@@ -221,7 +292,7 @@ it('drops the pending pre-ad caption when switching video IDs', async () => {
   await import('../src/content/index');
   await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  let context: CaptionContext = { contentId: 'youtube:first', active: true, isAd: false, player };
+  let context: CaptionContext = { contentId: 'youtube:first', active: true, isAd: false, captionsOff: false, player };
   video.currentTime = 10;
   emit('Same caption', context);
   vi.stubGlobal('location', new URL('https://www.youtube.com/watch?v=second'));
@@ -254,7 +325,7 @@ it.each([
   await import('../src/content/index');
   await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  emit('Hello world', { contentId: youtube ? 'youtube:first' : 'B0FIRST', active: true, isAd: false, player });
+  emit('Hello world', { contentId: youtube ? 'youtube:first' : 'B0FIRST', active: true, isAd: false, captionsOff: false, player });
   if (timing === 'awaiting-response') vi.advanceTimersByTime(350);
   mocks.createPanel.mock.calls[0][0].onClearHistory();
   vi.advanceTimersByTime(350);
@@ -274,7 +345,7 @@ it('shows quota guidance inline while canceled translations remain silent', asyn
     .mockResolvedValueOnce({ ok: false, code: 'CANCELED', error: '取り消しました' });
   await import('../src/content/index'); await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  const context: CaptionContext = { contentId: 'youtube:quota', active: true, isAd: false, player };
+  const context: CaptionContext = { contentId: 'youtube:quota', active: true, isAd: false, captionsOff: false, player };
   emit('Hello', context); await vi.advanceTimersByTimeAsync(350);
   expect(mocks.overlay.setTranslation).toHaveBeenLastCalledWith({ kind: 'text', text: '利用上限: 60秒停止します' });
   emit('Next', context); await vi.advanceTimersByTimeAsync(350);
@@ -289,7 +360,7 @@ it('records captions in a skipped range when the user seeks back into it (regres
   mocks.request.mockReturnValue(new Promise(() => {}));
   await import('../src/content/index'); await Promise.resolve();
   const emit = mocks.observe.mock.calls[0][0] as (text: string | null, context: CaptionContext) => void;
-  const context = { contentId: 'youtube:skipback', active: true, isAd: false, player };
+  const context = { contentId: 'youtube:skipback', active: true, isAd: false, captionsOff: false, player };
   const seekTo = (t: number): void => {
     video.currentTime = t;
     video.dispatchEvent(new Event('seeking'));

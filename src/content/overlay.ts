@@ -45,7 +45,7 @@ export type TranslationState =
 
 export interface Overlay {
   renderLine(sentence: string, tokens: Token[], videoTime: number): void;
-  clearLine(): void;
+  clearLine(hideControls?: boolean): void;
   setTranslation(state: TranslationState): void;
   openPopup(anchor: DOMRect, selection: string): number;
   isPopupCurrent(token: number): boolean;
@@ -416,7 +416,7 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
 
   function renderLine(sentence: string, tokens: Token[], videoTime: number): void {
     subtitle.hidden = false;
-    // 一度出したら clearLine でも隠さない（字幕の合間にも押せるようにするため）。
+    // 字幕の合間にも押せるよう、字幕オフまで表示を保つ。
     rewindBar.hidden = false;
     currentSentence = sentence;
     currentLineVideoTime = videoTime;
@@ -460,8 +460,9 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     }
   }
 
-  function clearLine(): void {
+  function clearLine(hideControls = false): void {
     subtitle.hidden = true;
+    if (hideControls) rewindBar.hidden = true;
     // 隠した字幕の上にはカーソルが居られない。ただし再開はしない
     // （停止中に字幕が消えた場合に再生と停止を繰り返さないため）。
     // ポップアップが無ければここで resume:false を送り、停止の記録だけを消させる

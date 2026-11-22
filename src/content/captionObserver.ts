@@ -1,5 +1,5 @@
 import { pickCaptionText } from './captionExtractor';
-import { CAPTION_TEXT_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
+import { CAPTION_TEXT_SELECTORS, PLAYER_CONTAINER_SELECTORS, YOUTUBE_CAPTION_SELECTORS } from '../shared/selectors';
 import { extractContentId } from './contentIdentity';
 import { isYouTube, isYouTubeAd, youtubePlayer, youtubeVideoId } from './site';
 
@@ -11,8 +11,17 @@ export interface CaptionContext {
   contentId: string;
   active: boolean;
   isAd: boolean;
+  captionsOff: boolean;
   player: HTMLElement | null;
 }
+
+const YOUTUBE_CAPTION_TOGGLE = '.ytp-subtitles-button';
+const PRIME_PLAYER = PLAYER_CONTAINER_SELECTORS.join(', ');
+const PRIME_CAPTIONS_OFF = [
+  'button[aria-label="Turn on subtitles" i]',
+  'button[aria-label="Subtitles unavailable" i]',
+  'button[aria-label="字幕をオンにする"]',
+].join(', ');
 
 /** 字幕とページ状態をフレーム単位で読み、同じ文字でも動画が変われば通知する。 */
 export function startCaptionObserver(
@@ -33,9 +42,12 @@ export function startCaptionObserver(
       contentId: extractContentId(location.href),
       active: !youtube || (!navigating && !!youtubeVideoId()),
       isAd: youtube && isYouTubeAd(player),
+      captionsOff: youtube
+        ? !!player?.querySelector(`${YOUTUBE_CAPTION_TOGGLE}[aria-pressed="false"]`)
+        : [...document.querySelectorAll(PRIME_CAPTIONS_OFF)].some(button => button.closest(PRIME_PLAYER)),
       player,
     };
-    const text = context.active && !context.isAd
+    const text = context.active && !context.isAd && !context.captionsOff
       ? pickCaptionText(document, youtube ? YOUTUBE_CAPTION_SELECTORS : CAPTION_TEXT_SELECTORS)
       : null;
     if (text !== last || !previous || Object.keys(context).some(
@@ -55,8 +67,10 @@ export function startCaptionObserver(
   const observer = new MutationObserver((records) => {
     if (records.some((record) => record.type !== 'attributes' || (
       record.target instanceof Element && (
-        record.target.id === 'movie_player' ||
-        record.target.closest('#movie_player .ytp-caption-window-container')
+        youtube
+          ? record.target.id === 'movie_player' ||
+            record.target.closest(`#movie_player :is(.ytp-caption-window-container, ${YOUTUBE_CAPTION_TOGGLE})`)
+          : record.target.matches('button') && record.target.closest(PRIME_PLAYER)
       )
     ))) schedule();
   });
@@ -64,7 +78,8 @@ export function startCaptionObserver(
     childList: true,
     subtree: true,
     characterData: true,
-    ...(youtube ? { attributes: true, attributeFilter: ['class'] } : {}),
+    attributes: true,
+    attributeFilter: youtube ? ['class', 'aria-pressed'] : ['aria-label'],
   });
   if (youtube) {
     document.addEventListener('yt-navigate-start', startNavigation);
