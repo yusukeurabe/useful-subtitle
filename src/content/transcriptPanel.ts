@@ -153,6 +153,12 @@ const STYLES = `
 .row .ja { font-size: 12px; line-height: 1.4; color: #ffe08a; margin-top: 2px; }
 .row .en .word { border-radius: 3px; padding: 0 1px; transition: background 0.1s; }
 .row .en .word:hover { background: rgba(255, 255, 255, 0.22); }
+/* ポップアップがいま説明している単語。カーソルを外しても、どの単語の解説かが分かるよう残す。 */
+.row .en .word.popup-target,
+.row .en .word.popup-target:hover {
+  background: rgba(255, 224, 138, 0.32); color: #fff;
+  box-shadow: inset 0 -2px 0 #ffe08a;
+}
 .reopen {
   position: fixed; top: 8px; right: 8px; z-index: 2147483000;
   width: 28px; height: 28px; padding: 0;
@@ -382,6 +388,8 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   const CLOSE_GRACE_MS = 200; // 離れてから閉じるまでの猶予
   let hoverPopup: HTMLDivElement | null = null;
   let hoverRow: HTMLElement | null = null;
+  // ポップアップが説明している単語の span（.popup-target でハイライトする）。
+  let targetWord: HTMLElement | null = null;
   let dwellRow: HTMLDivElement | null = null;
   let dwellTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -401,8 +409,15 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       closeTimer = undefined;
     }
   };
+  const setTargetWord = (el: HTMLElement | null): void => {
+    if (targetWord === el) return;
+    targetWord?.classList.remove('popup-target');
+    el?.classList.add('popup-target');
+    targetWord = el;
+  };
   const hideHoverPopup = (): void => {
     hoverRow = null;
+    setTargetWord(null);
     clearDwell();
     clearClose();
     hoverSeq++; // 進行中の応答を無効化
@@ -558,10 +573,11 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
    * 単語の意味と文の意味を並行取得し、それぞれの応答が来た順に該当セクションを更新する。
    * 行を跨いで単語移動した場合は hoverSeq で旧応答を破棄する。
    */
-  const openHoverPopup = (row: HTMLElement, word: string, sentence: string): void => {
+  const openHoverPopup = (row: HTMLElement, wordEl: HTMLElement, word: string, sentence: string): void => {
     if (!cb.onExplainWord && !cb.onExplain) return;
     clearClose();
     hoverRow = row;
+    setTargetWord(wordEl);
     const seq = ++hoverSeq;
     if (!hoverPopup) {
       hoverPopup = document.createElement('div');
@@ -679,7 +695,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
         clearDwell();
         dwellRow = row;
         dwellTimer = setTimeout(
-          () => openHoverPopup(row, tok.text, entry.english),
+          () => openHoverPopup(row, wspan, tok.text, entry.english),
           hoverPopup ? SWITCH_MS : DWELL_MS,
         );
       });
