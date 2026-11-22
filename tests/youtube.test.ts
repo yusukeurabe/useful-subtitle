@@ -219,6 +219,7 @@ describe('YouTube captions and lifecycle', () => {
     expect(host.parentElement).toBe(p);
     expect(host.style.position).toBe('absolute');
     expect(host.shadowRoot!.querySelector<HTMLElement>('.subtitle')!.style.position).toBe('absolute');
+    expect(host.shadowRoot!.querySelector<HTMLElement>('.rewind-bar')!.style.position).toBe('absolute');
     host.getBoundingClientRect = () => new DOMRect(100, 50, 800, 450);
     overlay.openPopup(new DOMRect(300, 250, 60, 20), 'Hello');
     const popup = host.shadowRoot!.querySelector<HTMLElement>('.popup')!;

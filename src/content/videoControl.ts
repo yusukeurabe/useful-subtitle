@@ -99,21 +99,36 @@ export function resumeVideo(v: HTMLVideoElement): () => void {
 }
 
 /**
- * 指定秒へシークし、その地点から再生を再開する（負値は 0 に丸める）。
+ * v を指定秒へシークし、その地点から再生を再開する（負値は 0 に丸める）。
  *
  * Prime は一時停止中だとプログラムからの currentTime 変更で画面を描き直さないため、
  * シーク後に resumeVideo で再生まで行う（履歴行をクリックしても「戻らない」ように
  * 見えるのを防ぐ）。未バッファ地点で直後の play() が落ちた場合に備え、シーク完了
  * (seeked) 時にもう一度 play() する。再生中に呼ばれた場合は resumeVideo の
  * ボタン押下が skip される（v.paused が false）ので、再生中クリックを誤って停止しない。
- * 同じ要素を一貫して扱い、findVideo の二度引きによる取り違えも防ぐ。
  */
-export function seekVideo(seconds: number): void {
-  const v = findVideo();
-  if (!v) return;
+function seekElement(v: HTMLVideoElement, seconds: number): void {
   v.currentTime = Math.max(0, seconds);
   resumeVideo(v);
   v.addEventListener('seeked', () => {
     if (findVideo() === v) void v.play().catch(() => undefined);
   }, { once: true });
+}
+
+/**
+ * 指定秒へシークし、その地点から再生を再開する。
+ * 同じ要素を一貫して扱い、findVideo の二度引きによる取り違えも防ぐ。
+ */
+export function seekVideo(seconds: number): void {
+  const v = findVideo();
+  if (v) seekElement(v, seconds);
+}
+
+/**
+ * 現在位置から seconds 秒戻して再生する（字幕下の巻き戻しボタン用）。
+ * 0 秒より前は 0 秒。現在位置の読み取りとシークは同じ要素に対して行う。
+ */
+export function rewindVideo(seconds: number): void {
+  const v = findVideo();
+  if (v) seekElement(v, v.currentTime - seconds);
 }
