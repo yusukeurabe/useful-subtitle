@@ -84,6 +84,20 @@ export function nextFollowState(opts: {
   return opts.activeRowVisible || opts.nearBottom;
 }
 
+/**
+ * 再生中の行がリストの可視範囲の上下どちらへ外れているかを返す純粋関数（見えていれば null）。
+ * リストの高さが 0（パネルが閉じている・レイアウト前）のときは判定できないので null。
+ */
+export function activeRowOffscreen(
+  row: { top: number; bottom: number },
+  list: { top: number; bottom: number },
+): 'above' | 'below' | null {
+  if (list.bottom - list.top <= 0) return null;
+  if (row.bottom <= list.top) return 'above';
+  if (row.top >= list.bottom) return 'below';
+  return null;
+}
+
 export interface ReopenPosition {
   left: number;
   top: number;
@@ -136,6 +150,7 @@ const STYLES = `
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 .panel {
+  position: relative;
   display: flex; flex-direction: column; height: 100%;
   background: rgba(20, 20, 20, 0.82); color: #f3f3f3;
   backdrop-filter: blur(2px);
@@ -155,13 +170,34 @@ const STYLES = `
 .header .actions button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
 .list { flex: 1 1 auto; overflow-y: auto; padding: 6px 0; }
 .row {
-  padding: 8px 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: relative;
+  padding: 8px 12px 8px 16px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 .row:hover { background: rgba(86, 156, 255, 0.18); }
-.row.active {
-  background: rgba(86, 156, 255, 0.14);
-  box-shadow: inset 4px 0 0 #569cff;
+/* 再生中の行。濃い青の地＋太い左帯＋▶印＋枠線で、流し見でも一目で分かるようにする。 */
+.row.active,
+.row.active:hover {
+  background: rgba(86, 156, 255, 0.34);
+  box-shadow: inset 5px 0 0 #6fadff, inset 0 0 0 1px rgba(138, 180, 255, 0.75);
 }
+.row.active::before {
+  content: ''; position: absolute; left: 7px; top: 50%; transform: translateY(-50%);
+  border-style: solid; border-width: 5px 0 5px 6px;
+  border-color: transparent transparent transparent #cfe2ff;
+}
+.row.active .en { color: #fff; }
+/* 再生中の行が画面外にあるとき、リスト下部に出すジャンプボタン。 */
+.jump {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: none; align-items: center; gap: 4px;
+  padding: 7px 14px; border: 1px solid #8ab4ff; border-radius: 999px;
+  background: #2f6fd6; color: #fff; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 700; line-height: 1.2; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); z-index: 1;
+}
+.jump.show { display: inline-flex; }
+.jump:hover { background: #3d80ea; }
+.jump:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .row .en { font-size: 13px; line-height: 1.4; }
 .row .ja { font-size: 12px; line-height: 1.4; color: #ffe08a; margin-top: 2px; }
 .row .en .word { border-radius: 3px; padding: 0 1px; transition: background 0.1s; }
@@ -286,7 +322,12 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   header.append(title, actions);
   const list = document.createElement('div');
   list.className = 'list';
-  panel.append(header, list);
+  // 上へ遡って読んでいる間など、再生中の行が見えていないときに出す「再生中の行へ戻る」ボタン。
+  const jumpButton = document.createElement('button');
+  jumpButton.type = 'button';
+  jumpButton.className = 'jump';
+  jumpButton.title = 'Jump to the subtitle now playing';
+  panel.append(header, list, jumpButton);
   panelHost.appendChild(panel);
   shadow.appendChild(panelHost);
 
@@ -308,6 +349,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     reopen.style.display = visible ? 'none' : '';
     if (!visible) leavePanel();
     syncTopOffset();
+    updateJumpButton();
     if (!visible) clampReopen();
     if (open !== visible) {
       open = visible;
@@ -427,6 +469,22 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     lastAutoScrollTop = list.scrollTop;
   };
 
+  // 再生中の行が見えていなければジャンプボタンを出し、矢印で上下どちらにあるかを示す。
+  function updateJumpButton(): void {
+    const dir = activeRow
+      ? activeRowOffscreen(activeRow.getBoundingClientRect(), list.getBoundingClientRect())
+      : null;
+    jumpButton.classList.toggle('show', dir !== null);
+    if (dir) jumpButton.textContent = `${dir === 'above' ? '↑' : '↓'} Now playing`;
+  }
+  jumpButton.addEventListener('click', () => {
+    if (!activeRow) return;
+    following = true; // 戻った後は再生に合わせて再び追従する
+    activeRow.scrollIntoView({ block: 'center' });
+    lastAutoScrollTop = list.scrollTop;
+    updateJumpButton();
+  });
+
   // 手動スクロールを検知して追従可否を更新する。自前スクロールの「こだま」は無視する。
   list.addEventListener('scroll', () => {
     following = nextFollowState({
@@ -435,6 +493,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       activeRowVisible: isActiveVisible(),
       nearBottom: isNearBottom(),
     });
+    updateJumpButton();
   });
 
   // --- ホバーで単語＋文の意味を 2 段で表示するポップアップ ---
@@ -946,6 +1005,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     next?.classList.add('active');
     activeRow = next;
     if (following) scrollActiveIntoView();
+    updateJumpButton();
   }
 
   // 履歴を全消去する（別作品・別エピソードへの切り替え時に呼ぶ）。行・対応表・
@@ -962,6 +1022,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     activeRow = null;
     following = true; // 新しい作品は最下部へ追従させる
     lastAutoScrollTop = -1;
+    updateJumpButton();
   }
 
   // --- マウント & 全画面追従 ---
