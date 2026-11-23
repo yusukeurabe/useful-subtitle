@@ -134,6 +134,22 @@ export function rewindVideo(seconds: number): void {
 }
 
 /**
+ * 現在位置から seconds 秒進めて再生する（字幕下の早送りボタン用）。
+ * 終端ちょうどへシークすると ended になり、続く play() が先頭へ戻してしまうため、
+ * 長さが分かるときは終端の 0.5 秒手前で止める（すでにそれより後ろなら動かさない）。
+ */
+export function forwardVideo(seconds: number): void {
+  const v = findVideo();
+  if (!v) return;
+  let target = v.currentTime + seconds;
+  if (Number.isFinite(v.duration) && v.duration > 0) {
+    const limit = v.duration - 0.5;
+    if (target > limit) target = Math.max(v.currentTime, limit);
+  }
+  seekElement(v, target);
+}
+
+/**
  * 停止中なら再生し、再生中なら一時停止する（字幕下の再生/一時停止ボタン用）。
  * 再生は resumeVideo を使う（Prime が生の play() を握り潰す場合に備えるため）。
  */

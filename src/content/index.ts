@@ -9,7 +9,7 @@ import { createTranscriptRecorder, createRollingTranscriptRecorder } from './tra
 import { runLookup } from './interaction';
 import { playPronunciation } from './audio';
 import { fetchWordInfo } from './word';
-import { findVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo } from './videoControl';
+import { findVideo, forwardVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo } from './videoControl';
 import { createHoverPause } from './hoverPause';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
@@ -45,6 +45,7 @@ async function main(): Promise<void> {
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
       onSeek: seekVideo,
       onRewind: rewindVideo,
+      onForward: forwardVideo,
       onTogglePlay: togglePlayVideo,
       // 字幕リストが有効なときだけ、字幕下に開閉ボタンを出す。
       onToggleTranscript: settings.showTranscriptPanel ? () => panel?.toggleOpen() : undefined,

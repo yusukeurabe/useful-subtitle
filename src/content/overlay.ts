@@ -14,6 +14,8 @@ export interface OverlayCallbacks {
   onSeek: (videoTime: number) => void;
   /** 字幕下の巻き戻しボタン（↺5 / ↺10）が押されたとき。引数は戻す秒数。 */
   onRewind?: (seconds: number) => void;
+  /** 字幕下の早送りボタン（↻5 / ↻10）が押されたとき。引数は進める秒数。 */
+  onForward?: (seconds: number) => void;
   /** 字幕下の再生/一時停止ボタンが押されたとき。 */
   onTogglePlay?: () => void;
   /** 字幕下の字幕リスト開閉ボタンが押されたとき。未指定ならボタンを出さない（字幕リスト無効時）。 */
@@ -196,13 +198,14 @@ const STYLES = `
 /* 字幕の真下に置く巻き戻しボタン。.subtitle の外の別要素なので字幕が消えても残る。
    --sub-bottom は字幕の bottom（%）。36px = ボタン高さ 32px + すき間 4px で、
    字幕を一番下まで下げたときは 4px で止まり字幕に少し重なる。
-   並びは [↺5][↺10][再生/一時停止]([字幕リスト開閉])[つまみ]。再生/一時停止ボタン（幅 44px）の
-   中心を画面中央に置くため、バーの右端を 50% + 56px に合わせる（= 自分の幅だけ左へずらして
-   56px 戻す。56 = ボタン幅の半分 22 + すき間 6 + つまみ幅 28）。字幕リスト開閉ボタンが
-   あるとき（.has-list）は 98px（= 56 + 開閉ボタン幅 36 + すき間 6）。
-   ボタン幅・すき間・つまみ幅のどれかを変えたら 56px / 98px も合わせること。 */
+   並びは [↺10][↺5][再生/一時停止][↻5][↻10]([字幕リスト開閉])[つまみ]。再生/一時停止ボタン
+   （幅 44px）の中心を画面中央に置くため、バーの右端を 50% + 156px に合わせる（= 自分の幅だけ
+   左へずらして 156px 戻す。156 = ボタン幅の半分 22 + (すき間 6 + 早送りボタン幅 44) × 2
+   + すき間 6 + つまみ幅 28）。字幕リスト開閉ボタンがあるとき（.has-list）は 198px
+   （= 156 + 開閉ボタン幅 36 + すき間 6）。
+   ボタン幅・すき間・つまみ幅のどれかを変えたら 156px / 198px も合わせること。 */
 .rewind-bar {
-  position: fixed; left: 50%; transform: translateX(calc(-100% + 56px));
+  position: fixed; left: 50%; transform: translateX(calc(-100% + 156px));
   bottom: max(4px, calc(var(--sub-bottom) - 36px));
   display: flex; gap: 6px; pointer-events: auto;
   opacity: 0.35; transition: opacity 0.2s;
@@ -217,6 +220,8 @@ const STYLES = `
   cursor: pointer;
 }
 .rewind-btn:hover { background: rgba(86, 156, 255, 0.85); }
+/* 巻き戻し・早送りボタン。中央合わせの計算がずれないよう、文字幅によらず固定幅にする。 */
+.skip-btn { width: 44px; padding: 0; }
 /* 画面中央の再生/一時停止ボタン。アイコンの切り替えで幅が変わらないよう固定幅にする。 */
 .play-toggle {
   width: 44px; padding: 0;
@@ -224,7 +229,7 @@ const STYLES = `
 }
 /* 再生/一時停止ボタンの右隣（中央より少し右）に置く字幕位置のつまみ。ボタンと高さをそろえる。 */
 .rewind-bar .bar-handle { width: 28px; height: 32px; line-height: 32px; }
-.rewind-bar.has-list { transform: translateX(calc(-100% + 98px)); }
+.rewind-bar.has-list { transform: translateX(calc(-100% + 198px)); }
 /* 再生/一時停止ボタンの右隣に置く字幕リストの開閉ボタン。開いている間は青く点灯する。 */
 .list-toggle {
   width: 36px; min-width: 36px; padding: 0;
@@ -269,17 +274,20 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
   rewindBar.className = 'rewind-bar';
   rewindBar.hidden = true;
   if (youtube) rewindBar.style.position = 'absolute';
-  const makeRewindBtn = (seconds: number): HTMLButtonElement => {
+  // 巻き戻し（↺）・早送り（↻）ボタン。direction で向きを決める。
+  const makeSkipBtn = (seconds: number, direction: 'back' | 'forward'): HTMLButtonElement => {
+    const back = direction === 'back';
     const btn = document.createElement('button');
-    btn.className = 'rewind-btn';
-    btn.textContent = `↺${seconds}`;
-    btn.title = `${seconds}秒戻る`;
+    btn.className = `rewind-btn skip-btn ${back ? 'skip-back' : 'skip-forward'}`;
+    btn.textContent = `${back ? '↺' : '↻'}${seconds}`;
+    btn.title = `${seconds}秒${back ? '戻る' : '進む'}`;
     // クリックでフォーカスを取らない（取ると、押した後の Space で一時停止のつもりが再度押される）。
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('click', () => {
-      // 開いている単語ポップアップは閉じる。再開は巻き戻し側の再生に任せる。
+      // 開いている単語ポップアップは閉じる。再開はシーク側の再生に任せる。
       hidePopup(false);
-      callbacks.onRewind?.(seconds);
+      if (back) callbacks.onRewind?.(seconds);
+      else callbacks.onForward?.(seconds);
     });
     return btn;
   };
@@ -313,12 +321,12 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     hidePopup(false);
     callbacks.onTogglePlay?.();
   });
-  // 右側のつまみと同じものを再生/一時停止ボタンの右隣に置く（中央より少し右になる）。
+  // 右側のつまみと同じものをバーの右端に置く（早送り・字幕リスト開閉ボタンのさらに右）。
   // バーは --sub-bottom で字幕に付いて動くので、ドラッグ中もつまみがカーソルに追従する。
   const barHandle = makePosHandle();
   barHandle.classList.add('bar-handle');
   // 字幕リストの開閉ボタン。字幕リストが有効なとき（onToggleTranscript 指定時）だけ、
-  // 再生/一時停止ボタンとつまみの間に置く。点灯は setTranscriptOpen で字幕リストに合わせる。
+  // 早送りボタンとつまみの間に置く。点灯は setTranscriptOpen で字幕リストに合わせる。
   let listToggle: HTMLButtonElement | null = null;
   const setTranscriptOpen = (open: boolean): void => {
     if (!listToggle) return;
@@ -343,10 +351,13 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     setTranscriptOpen(false);
     rewindBar.classList.add('has-list');
   }
+  // 再生/一時停止ボタンを挟んで、短い秒数ほど内側（中央寄り）に置く。
   rewindBar.append(
-    makeRewindBtn(5),
-    makeRewindBtn(10),
+    makeSkipBtn(10, 'back'),
+    makeSkipBtn(5, 'back'),
     playToggle,
+    makeSkipBtn(5, 'forward'),
+    makeSkipBtn(10, 'forward'),
     ...(listToggle ? [listToggle] : []),
     barHandle,
   );

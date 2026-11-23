@@ -636,31 +636,40 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
 
   const bar = (): HTMLElement => shadow().querySelector<HTMLElement>('.rewind-bar')!;
   const buttons = (): HTMLButtonElement[] =>
-    [...bar().querySelectorAll<HTMLButtonElement>('.rewind-btn:not(.play-toggle):not(.list-toggle)')];
+    [...bar().querySelectorAll<HTMLButtonElement>('.skip-back')];
+  const forwardButtons = (): HTMLButtonElement[] =>
+    [...bar().querySelectorAll<HTMLButtonElement>('.skip-forward')];
 
-  it('↺5 と ↺10 のボタンが並ぶ', () => {
+  it('巻き戻しは ↺10・↺5 の順に並ぶ（5秒が再生ボタン寄り）', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
-    expect(buttons().map((b) => b.textContent)).toEqual(['↺5', '↺10']);
-    expect(buttons().map((b) => b.title)).toEqual(['5秒戻る', '10秒戻る']);
+    expect(buttons().map((b) => b.textContent)).toEqual(['↺10', '↺5']);
+    expect(buttons().map((b) => b.title)).toEqual(['10秒戻る', '5秒戻る']);
   });
 
-  it('↺5・↺10・再生/一時停止・字幕位置のつまみの順に並ぶ', () => {
+  it('早送りは ↻5・↻10 の順に並ぶ（5秒が再生ボタン寄り）', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    expect(forwardButtons().map((b) => b.textContent)).toEqual(['↻5', '↻10']);
+    expect(forwardButtons().map((b) => b.title)).toEqual(['5秒進む', '10秒進む']);
+  });
+
+  it('↺10・↺5・再生/一時停止・↻5・↻10・字幕位置のつまみの順に並ぶ', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     const kids = [...bar().children] as HTMLElement[];
-    expect(kids.map((k) => k.textContent)).toEqual(['↺5', '↺10', '', '⠿']);
+    expect(kids.map((k) => k.textContent)).toEqual(['↺10', '↺5', '', '↻5', '↻10', '⠿']);
     expect(kids[2].classList.contains('play-toggle')).toBe(true);
-    expect(kids[3].classList.contains('pos-handle')).toBe(true);
-    expect(kids[3].title).toBe('ドラッグで字幕を上下に移動');
+    expect(kids[5].classList.contains('pos-handle')).toBe(true);
+    expect(kids[5].title).toBe('ドラッグで字幕を上下に移動');
   });
 
-  it('再生/一時停止ボタンの中心が画面中央に来るよう、バーの右端を 50% + 56px に合わせる', () => {
+  it('再生/一時停止ボタンの中心が画面中央に来るよう、バーの右端を 50% + 156px に合わせる', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     const css = shadow().querySelector('style')!.textContent ?? '';
-    // 56 = ボタン幅 44 の半分 22 + すき間 6 + つまみ幅 28
+    // 156 = ボタン幅 44 の半分 22 + (すき間 6 + 早送りボタン幅 44) × 2 + すき間 6 + つまみ幅 28
     expect(css).toMatch(/\.rewind-bar \.bar-handle\s*\{[^}]*width:\s*28px/);
     expect(css).toMatch(/\.play-toggle\s*\{[^}]*width:\s*44px/);
+    expect(css).toMatch(/\.skip-btn\s*\{[^}]*width:\s*44px/);
     expect(css).toMatch(/\.rewind-bar\s*\{[^}]*gap:\s*6px/);
-    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 56px\)\)/);
+    expect(css).toMatch(/\.rewind-bar\s*\{[^}]*left:\s*50%;\s*transform:\s*translateX\(calc\(-100% \+ 156px\)\)/);
   });
 
   describe('字幕リストの開閉ボタン', () => {
@@ -672,13 +681,14 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
         { bottomPercent: 10, onBottomChange: () => {} },
       );
 
-    it('onToggleTranscript 指定時は再生/一時停止とつまみの間に並ぶ', () => {
+    it('onToggleTranscript 指定時は早送りボタンとつまみの間に並ぶ', () => {
       overlay = withList();
       const kids = [...bar().children] as HTMLElement[];
-      expect(kids).toHaveLength(5);
+      expect(kids).toHaveLength(7);
       expect(kids[2].classList.contains('play-toggle')).toBe(true);
-      expect(kids[3].classList.contains('list-toggle')).toBe(true);
-      expect(kids[4].classList.contains('pos-handle')).toBe(true);
+      expect(kids[4].textContent).toBe('↻10');
+      expect(kids[5].classList.contains('list-toggle')).toBe(true);
+      expect(kids[6].classList.contains('pos-handle')).toBe(true);
       expect(bar().classList.contains('has-list')).toBe(true);
     });
 
@@ -688,12 +698,12 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
       expect(bar().classList.contains('has-list')).toBe(false);
     });
 
-    it('再生/一時停止ボタンが中央に残るよう、ボタンありではバーの右端を 50% + 98px に合わせる', () => {
+    it('再生/一時停止ボタンが中央に残るよう、ボタンありではバーの右端を 50% + 198px に合わせる', () => {
       overlay = withList();
       const css = shadow().querySelector('style')!.textContent ?? '';
-      // 98 = 再生ボタン幅 44 の半分 22 + すき間 6 + 開閉ボタン幅 36 + すき間 6 + つまみ幅 28
+      // 198 = 156 + 開閉ボタン幅 36 + すき間 6
       expect(css).toMatch(/\.list-toggle\s*\{[^}]*width:\s*36px/);
-      expect(css).toMatch(/\.rewind-bar\.has-list\s*\{[^}]*transform:\s*translateX\(calc\(-100% \+ 98px\)\)/);
+      expect(css).toMatch(/\.rewind-bar\.has-list\s*\{[^}]*transform:\s*translateX\(calc\(-100% \+ 198px\)\)/);
     });
 
     it('クリックで onToggleTranscript が呼ばれる', () => {
@@ -849,20 +859,43 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     });
   });
 
-  it('クリックで onRewind が 5 / 10 で呼ばれる', () => {
+  it('クリックで onRewind が 10 / 5 で呼ばれ、早送りは呼ばれない', () => {
     const rewinds: number[] = [];
+    const forwards: number[] = [];
     overlay = createOverlay(
-      { ...noopCallbacks(), onRewind: (s) => rewinds.push(s) },
+      { ...noopCallbacks(), onRewind: (s) => rewinds.push(s), onForward: (s) => forwards.push(s) },
       { bottomPercent: 10, onBottomChange: () => {} },
     );
     buttons()[0].click();
     buttons()[1].click();
-    expect(rewinds).toEqual([5, 10]);
+    expect(rewinds).toEqual([10, 5]);
+    expect(forwards).toEqual([]);
   });
 
-  it('onRewind 未指定でもクリックで例外を出さない', () => {
+  it('早送りボタンのクリックで onForward が 5 / 10 で呼ばれ、巻き戻しは呼ばれない', () => {
+    const rewinds: number[] = [];
+    const forwards: number[] = [];
+    overlay = createOverlay(
+      { ...noopCallbacks(), onRewind: (s) => rewinds.push(s), onForward: (s) => forwards.push(s) },
+      { bottomPercent: 10, onBottomChange: () => {} },
+    );
+    forwardButtons()[0].click();
+    forwardButtons()[1].click();
+    expect(forwards).toEqual([5, 10]);
+    expect(rewinds).toEqual([]);
+  });
+
+  it('早送りボタンのクリックで開いている単語ポップアップを閉じる', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
+    forwardButtons()[0].click();
+    expect(shadow().querySelector('.popup')).toBeNull();
+  });
+
+  it('onRewind / onForward 未指定でもクリックで例外を出さない', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
     expect(() => buttons()[0].click()).not.toThrow();
+    expect(() => forwardButtons()[0].click()).not.toThrow();
   });
 
   it('字幕の直後に置かれ、字幕の子ではない（字幕が消えても残るため）', () => {
@@ -892,7 +925,7 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
 
   it('mousedown の既定動作を止め、クリックでフォーカスを取らない（Space で再度押されないため）', () => {
     overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
-    for (const btn of buttons()) {
+    for (const btn of [...buttons(), ...forwardButtons()]) {
       const e = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
       btn.dispatchEvent(e);
       expect(e.defaultPrevented).toBe(true);
@@ -907,7 +940,7 @@ describe('createOverlay — 字幕の下の巻き戻しボタン', () => {
     );
     overlay.openPopup(new DOMRect(0, 0, 10, 10), 'Hello');
     expect(shadow().querySelector('.popup')).not.toBeNull();
-    buttons()[0].click();
+    buttons()[1].click();
     expect(shadow().querySelector('.popup')).toBeNull();
     expect(rewinds).toEqual([5]);
   });
