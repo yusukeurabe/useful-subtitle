@@ -99,6 +99,13 @@ it('ポップアップ下段に、いま表示中の字幕一文の和訳と解�
   expect(section.querySelector('.s-expl')!.textContent).toBe('習慣を表す現在形。');
 });
 
+it('前後の字幕を、単語の解説と字幕一文の意味の両方に添える', () => {
+  const neighbors = { after: ['a rain check on that.'] };
+  void runLookup(overlay, settings, 'take', "I'm gonna take", anchor(), neighbors);
+  expect(request).toHaveBeenCalledWith({ type: 'explainSelection', selection: 'take', context: "I'm gonna take", after: ['a rain check on that.'] });
+  expect(request).toHaveBeenCalledWith({ type: 'explainSentence', text: "I'm gonna take", after: ['a rain check on that.'] });
+});
+
 it('字幕一文の取得に失敗したら下段にエラーを出す', async () => {
   const lookup = runLookup(overlay, settings, 'run', 'I run.', anchor());
   pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });

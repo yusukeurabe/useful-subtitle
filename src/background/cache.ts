@@ -1,5 +1,6 @@
 import type {
   AiProvider,
+  CaptionNeighbors,
   ExplainSelectionRequest,
   ExplainSentenceRequest,
   ExplanationLanguage,
@@ -15,7 +16,21 @@ const STORAGE_PREFIX = 'cache:';
  * 過去キャッシュは別キーに移るので破棄され、新プロンプトで再生成される。
  * （古いエントリは storage に残るが orphan として無視される。）
  */
-const EXPLANATION_PROMPT_VERSION = 'v3';
+const EXPLANATION_PROMPT_VERSION = 'v4';
+
+/**
+ * explainSentence プロンプトのバージョン。v1 は前後の字幕を渡す前の形式（バージョン欄なし）。
+ * 形式を変えたら上げる。
+ */
+const SENTENCE_PROMPT_VERSION = 'v2';
+
+/** 前後の字幕の区切り（字幕に出にくい Record Separator）。 */
+const LIST_SEP = '␞';
+
+/** 前後の字幕をキーの2欄にする。同じ字幕でも前後が違えば解説が変わりうるので別エントリ。 */
+function neighborParts(n: CaptionNeighbors): string[] {
+  return [(n.before ?? []).join(LIST_SEP), (n.after ?? []).join(LIST_SEP)];
+}
 
 /**
  * リクエスト内容＋モデル＋（解説の）言語から決定的なキャッシュキーを作る。
@@ -31,9 +46,9 @@ export function makeCacheKey(
     return ['t', provider, model, language, req.text].join(SEP);
   }
   if (req.type === 'explainSentence') {
-    return ['s', provider, model, language, req.text].join(SEP);
+    return ['s', SENTENCE_PROMPT_VERSION, provider, model, language, req.text, ...neighborParts(req)].join(SEP);
   }
-  return ['e', EXPLANATION_PROMPT_VERSION, provider, model, language, req.selection, req.context].join(SEP);
+  return ['e', EXPLANATION_PROMPT_VERSION, provider, model, language, req.selection, req.context, ...neighborParts(req)].join(SEP);
 }
 
 /** Service Worker の生存中だけ有効な高速メモリ層。 */

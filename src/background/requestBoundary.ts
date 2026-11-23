@@ -14,10 +14,17 @@ export function isRequest(value: unknown): value is RequestMessage {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
   const text = (key: string, max = 8192): boolean => typeof v[key] === 'string' && (v[key] as string).length > 0 && (v[key] as string).length <= max;
+  // 前後の字幕（任意）。あれば最大 4 件・各 8192 文字までの文字列配列に限る。
+  const neighbors = (key: string): boolean => v[key] === undefined || (
+    Array.isArray(v[key]) && (v[key] as unknown[]).length <= 4
+      && (v[key] as unknown[]).every((s) => typeof s === 'string' && s.length > 0 && s.length <= 8192)
+  );
+  const withNeighbors = (): boolean => neighbors('before') && neighbors('after');
   switch (v.type) {
     case 'ping': return true;
-    case 'translateLine': case 'explainSentence': return text('text');
-    case 'explainSelection': return text('selection', 2048) && text('context');
+    case 'translateLine': return text('text');
+    case 'explainSentence': return text('text') && withNeighbors();
+    case 'explainSelection': return text('selection', 2048) && text('context') && withNeighbors();
     case 'lookupWord': return text('text', 256);
     case 'playAudio': return text('url', 2048) && /^https:\/\/(?:dictionary\.cambridge\.org|(?:ssl\.)?gstatic\.com|api\.dictionaryapi\.dev)\//.test(v.url as string);
     default: return false;

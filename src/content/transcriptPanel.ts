@@ -3,6 +3,8 @@ import type { WordSense } from '../shared/explanation';
 import { formatIpaForDisplay } from '../shared/dictionary';
 import { createCloseIcon, createSpeakerButton, createTrashIcon } from './icons';
 import { isYouTube } from './site';
+import { pickNeighbors } from './captionContext';
+import type { CaptionNeighbors } from '../shared/types';
 
 export interface TranscriptEntry {
   /** 行を一意に識別する連番（翻訳の後追い更新に使う）。 */
@@ -34,10 +36,13 @@ export interface TranscriptPanelCallbacks {
   onSeek: (videoTime: number) => void;
   /** 単語クリック時の処理。指定時は行のシークより優先する（未指定なら行クリックと同じくシーク）。 */
   onWordClick?: () => void;
-  /** 単語にホバーしたとき、その単語の意味（品詞別訳＋解説）を取得する。ポップアップ上段に出す。 */
-  onExplainWord?: (word: string, sentence: string) => Promise<TranscriptWordMeaning>;
+  /**
+   * 単語にホバーしたとき、その単語の意味（品詞別訳＋解説）を取得する。ポップアップ上段に出す。
+   * neighbors はリスト上の前後の字幕（文やフレーズが字幕をまたいで切れているときの手がかり）。
+   */
+  onExplainWord?: (word: string, sentence: string, neighbors: CaptionNeighbors) => Promise<TranscriptWordMeaning>;
   /** 単語にホバーしたとき、その単語を含む字幕一文の意味（和訳＋解説）を取得する。ポップアップ下段に出す。 */
-  onExplain?: (sentence: string) => Promise<TranscriptMeaning>;
+  onExplain?: (sentence: string, neighbors: CaptionNeighbors) => Promise<TranscriptMeaning>;
   /** 単語にホバーしたとき、その単語の発音情報（IPA＋音源URL）を取得する。単語の横に IPA を出す。 */
   onLookupWordInfo?: (word: string) => Promise<TranscriptWordInfo>;
   /** 指定時は単語の横に 🔊 を出し、押すと発音を再生する。audioUrl は取得済みの音源（未取得なら null）。 */
@@ -440,7 +445,14 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   type RowItem = { entry: TranscriptEntry; row: HTMLDivElement; en: HTMLDivElement; ja: HTMLDivElement; rm: RowMeaning };
   const entriesById = new Map<number, RowItem>();
   // 行と videoTime の対応を追加順に保持する（現在行判定に使う）。
-  const rows: { videoTime: number; el: HTMLDivElement }[] = [];
+  const rows: { videoTime: number; el: HTMLDivElement; entry: TranscriptEntry }[] = [];
+
+  /** リスト上でその行の前後にある字幕（時刻順）。ホバーした時点の並びで引く。 */
+  const neighborsOf = (entry: TranscriptEntry): CaptionNeighbors =>
+    pickNeighbors(
+      rows.map((r) => ({ text: r.entry.english, videoTime: r.videoTime })),
+      rows.findIndex((r) => r.entry === entry),
+    );
   // いま .active が付いている行（無ければ null）。
   let activeRow: HTMLDivElement | null = null;
   // 再生時刻の読み取りと記録時刻のわずかなずれを吸収する許容誤差（秒）。
@@ -697,15 +709,17 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
   // 同じ文の意味の取得中の要求。単語ポップアップと行の差し込み表示が同じ文を同時に
   // 求めても API へは1回だけ送る（background のキャッシュは完了後にしか効かないため）。
   // 決着（成功・失敗とも）したら外すので、以降の要求はキャッシュ側に任せる。
+  // 前後の字幕が違えば別の要求（解説が変わりうる）なので、キーに含める。
   const explainInFlight = new Map<string, Promise<TranscriptMeaning>>();
-  const explainOnce = (sentence: string): Promise<TranscriptMeaning> => {
-    let p = explainInFlight.get(sentence);
+  const explainOnce = (sentence: string, neighbors: CaptionNeighbors): Promise<TranscriptMeaning> => {
+    const key = JSON.stringify([sentence, neighbors.before ?? [], neighbors.after ?? []]);
+    let p = explainInFlight.get(key);
     if (!p) {
-      p = cb.onExplain!(sentence);
-      explainInFlight.set(sentence, p);
+      p = cb.onExplain!(sentence, neighbors);
+      explainInFlight.set(key, p);
       // 片付け用の then は失敗も受けるので、共有の promise から未処理の reject は出ない。
       const forget = (): void => {
-        explainInFlight.delete(sentence);
+        explainInFlight.delete(key);
       };
       p.then(forget, forget);
     }
@@ -717,8 +731,10 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
    * 単語の意味と文の意味を並行取得し、それぞれの応答が来た順に該当セクションを更新する。
    * 行を跨いで単語移動した場合は hoverSeq で旧応答を破棄する。
    */
-  const openHoverPopup = (row: HTMLElement, wordEl: HTMLElement, word: string, sentence: string): void => {
+  const openHoverPopup = (row: HTMLElement, wordEl: HTMLElement, word: string, entry: TranscriptEntry): void => {
     if (!cb.onExplainWord && !cb.onExplain) return;
+    const sentence = entry.english;
+    const neighbors = neighborsOf(entry);
     clearClose();
     hoverRow = row;
     setTargetWord(wordEl);
@@ -756,14 +772,14 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     }
 
     if (cb.onExplainWord) {
-      void cb.onExplainWord(word, sentence).then((res) => {
+      void cb.onExplainWord(word, sentence, neighbors).then((res) => {
         if (seq !== hoverSeq || !hoverPopup) return; // 別単語へ移った／閉じた
         wordRes = res;
         rerender();
       });
     }
     if (cb.onExplain) {
-      void explainOnce(sentence).then((res) => {
+      void explainOnce(sentence, neighbors).then((res) => {
         if (seq !== hoverSeq || !hoverPopup) return;
         sentRes = res;
         rerender();
@@ -851,7 +867,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
       if (rows[rows.length - 1]?.el === item.row) followBottom();
     };
     settle(null);
-    void explainOnce(item.entry.english).then(
+    void explainOnce(item.entry.english, neighborsOf(item.entry)).then(
       (res) => {
         if (seq !== rm.seq) return; // 英文更新・全消去で無効化済み
         rm.state = res.ok ? 'done' : 'error';
@@ -932,12 +948,12 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
     const index = rows.findIndex((r) => r.videoTime > entry.videoTime);
     if (index === -1) {
       list.appendChild(row);
-      rows.push({ videoTime: entry.videoTime, el: row });
+      rows.push({ videoTime: entry.videoTime, el: row, entry });
       followBottom();
     } else {
       // 途中への挿入は最下部へ送らない（アクティブ行への追従は updateActiveByTime が行う）。
       list.insertBefore(row, rows[index].el);
-      rows.splice(index, 0, { videoTime: entry.videoTime, el: row });
+      rows.splice(index, 0, { videoTime: entry.videoTime, el: row, entry });
     }
   }
 
@@ -960,7 +976,7 @@ export function createTranscriptPanel(cb: TranscriptPanelCallbacks): TranscriptP
         clearDwell();
         dwellRow = row;
         dwellTimer = setTimeout(
-          () => openHoverPopup(row, wspan, tok.text, entry.english),
+          () => openHoverPopup(row, wspan, tok.text, entry),
           hoverPopup ? SWITCH_MS : DWELL_MS,
         );
       });

@@ -113,8 +113,8 @@ export async function handleRequest(
       req.type === 'translateLine'
         ? buildTranslationPrompt(req.text)
         : req.type === 'explainSentence'
-          ? buildSentenceMeaningPrompt(req.text, settings.explanationLanguage)
-          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage);
+          ? buildSentenceMeaningPrompt(req.text, settings.explanationLanguage, req)
+          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage, req);
 
     const text = await call({
       model: settings.model,
