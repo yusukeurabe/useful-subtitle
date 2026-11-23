@@ -20,6 +20,18 @@ describe('runtime boundary', () => {
     expect(isRequest(value)).toBe(false);
     expect(harness().boundary.dispatch(value, video)).toBeUndefined();
   });
+  it.each([
+    { type: 'explainSelection', selection: 'a', context: 'b', after: 'c' },
+    { type: 'explainSelection', selection: 'a', context: 'b', before: [1] },
+    { type: 'explainSentence', text: 'a', after: ['x', 'x', 'x', 'x', 'x'] },
+    { type: 'explainSentence', text: 'a', before: [''] },
+  ])('rejects malformed neighboring captions %j', value => {
+    expect(isRequest(value)).toBe(false);
+  });
+  it('accepts neighboring captions on explain requests', () => {
+    expect(isRequest({ type: 'explainSelection', selection: 'a', context: 'b', before: ['p'], after: ['n', 'n2'] })).toBe(true);
+    expect(isRequest({ type: 'explainSentence', text: 'a', after: ['n'] })).toBe(true);
+  });
   it.each([{ ...video, id: 'other' }, { ...video, url: 'https://evil.test' }, { ...video, frameId: 1 }, { ...video, url: 'https://www.amazon.com/shop' }, { ...video, url: 'https://www.youtube.com.evil.test/watch' }])('rejects unauthorized sender %j', sender => {
     expect(harness().boundary.dispatch({ type: 'translateLine', text: 'hi' }, sender)).toBeUndefined();
   });

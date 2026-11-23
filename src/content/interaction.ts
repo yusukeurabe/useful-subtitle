@@ -1,5 +1,5 @@
 import type { Overlay } from './overlay';
-import type { Settings } from '../shared/types';
+import type { CaptionNeighbors, Settings } from '../shared/types';
 import { pauseVideo } from './videoControl';
 import { sendRequest } from '../shared/messages';
 import { loadWordInfo } from './word';
@@ -9,10 +9,15 @@ import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
  * ポップアップ下段に、いま表示中の字幕一文の和訳＋解説を出す（字幕一覧のホバーと同じ explainSentence）。
  * 単語の解説を先に頼んでから呼ぶので、単語の意味が先に届く。
  */
-async function loadSentenceMeaning(overlay: Overlay, sentence: string, popupToken: number): Promise<void> {
+async function loadSentenceMeaning(
+  overlay: Overlay,
+  sentence: string,
+  neighbors: CaptionNeighbors,
+  popupToken: number,
+): Promise<void> {
   if (!sentence.trim()) return;
   overlay.setPopupSentence(null);
-  const res = await sendRequest({ type: 'explainSentence', text: sentence });
+  const res = await sendRequest({ type: 'explainSentence', text: sentence, ...neighbors });
   if (!overlay.isPopupCurrent(popupToken)) return;
   if (res.ok) {
     const { translation, explanation } = parseSentenceMeaning(res.text);
@@ -26,6 +31,7 @@ async function loadSentenceMeaning(overlay: Overlay, sentence: string, popupToke
  * 単語/フレーズの意味引きを実行する。
  * 自動一時停止 → ポップアップを開く → 発音情報の先読み（並行） → AI 解説の表示。
  * 下段には字幕一文の和訳＋解説を並行して取得・表示する。
+ * neighbors は前後の字幕。文やフレーズが字幕をまたいで切れていても正しい意味を出すために渡す。
  */
 export async function runLookup(
   overlay: Overlay,
@@ -33,14 +39,15 @@ export async function runLookup(
   selection: string,
   sentence: string,
   anchor: DOMRect,
+  neighbors: CaptionNeighbors = {},
 ): Promise<void> {
   if (!selection.trim()) return;
   if (settings.autoPauseOnClick) pauseVideo();
   const popupToken = overlay.openPopup(anchor, selection);
   // 発音記号・音源URLの先読み（意味取得と独立・並行）。
   void loadWordInfo(overlay, selection, popupToken);
-  const word = sendRequest({ type: 'explainSelection', selection, context: sentence });
-  void loadSentenceMeaning(overlay, sentence, popupToken);
+  const word = sendRequest({ type: 'explainSelection', selection, context: sentence, ...neighbors });
+  void loadSentenceMeaning(overlay, sentence, neighbors, popupToken);
   const res = await word;
   if (!overlay.isPopupCurrent(popupToken)) return;
   if (res.ok) {

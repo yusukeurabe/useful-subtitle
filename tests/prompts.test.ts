@@ -117,3 +117,44 @@ describe('buildSentenceMeaningPrompt', () => {
     expect(buildSentenceMeaningPrompt('x', 'en').system).toMatch(/英語|English/i);
   });
 });
+
+describe('前後の字幕をまたぐ文・フレーズ', () => {
+  const neighbors = { before: ['So, about dinner tonight?'], after: ['a rain check on that.'] };
+
+  it('単語の解説で、前後の字幕を出た順に並べて渡す', () => {
+    const { system, user } = buildExplanationPrompt('take', "I'm gonna take", 'ja', neighbors);
+    expect(user).toBe(
+      '前の字幕: "So, about dinner tonight?"\n' +
+        '対象の字幕: "I\'m gonna take"\n' +
+        '次の字幕: "a rain check on that."\n' +
+        '対象の字幕の中の単語 "take" の意味を教えてください。',
+    );
+    expect(system).toContain('字幕は文やフレーズの途中で区切られ');
+    expect(system).toContain('字幕をまたいで続く');
+    // 単語の品詞行の形式は保つ。
+    expect(system).toContain('品詞コード');
+  });
+
+  it('フレーズの解説では、訳もまたいだフレーズ全体を踏まえた意味にさせる', () => {
+    const { system, user } = buildExplanationPrompt('gonna take', "I'm gonna take", 'ja', neighbors);
+    expect(user).toContain('対象の字幕の中のフレーズ "gonna take"');
+    expect(system).toContain('訳はそのフレーズ全体を踏まえた文脈上の意味');
+  });
+
+  it('前後の字幕が無ければ従来どおりのプロンプト', () => {
+    expect(buildExplanationPrompt('take', 'I take it', 'ja', {})).toEqual(buildExplanationPrompt('take', 'I take it', 'ja'));
+    expect(buildSentenceMeaningPrompt('I take it', 'ja', { before: [], after: [] })).toEqual(
+      buildSentenceMeaningPrompt('I take it', 'ja'),
+    );
+  });
+
+  it('文の意味では、訳は対象の字幕の部分だけにし、つながりは説明で補足させる', () => {
+    const { system, user } = buildSentenceMeaningPrompt("I'm gonna take", 'ja', neighbors);
+    expect(user).toContain('対象の字幕: "I\'m gonna take"');
+    expect(user).toContain('次の字幕: "a rain check on that."');
+    expect(system).toContain('対象の字幕の部分だけ');
+    expect(system).toContain('前後の字幕の内容は訳に含めない');
+    expect(system).toContain('訳:');
+    expect(system).toContain('説明:');
+  });
+});

@@ -95,6 +95,20 @@ describe('handleRequest', () => {
     expect(received!.user).toContain('break a leg');
   });
 
+  it('前後の字幕を解説プロンプトに渡す（explainSelection / explainSentence）', async () => {
+    const users: string[] = [];
+    const d = deps({
+      callAi: async (p: AnthropicParams) => {
+        users.push(p.user);
+        return 'ok';
+      },
+    });
+    await handleRequest({ type: 'explainSelection', selection: 'take', context: "I'm gonna take", after: ['a rain check.'] }, d);
+    await handleRequest({ type: 'explainSentence', text: "I'm gonna take", before: ['So?'] }, d);
+    expect(users[0]).toContain('次の字幕: "a rain check."');
+    expect(users[1]).toContain('前の字幕: "So?"');
+  });
+
   it('handles lookupWord without an API key and returns word info', async () => {
     const res = await handleRequest(
       { type: 'lookupWord', text: 'resilient' },

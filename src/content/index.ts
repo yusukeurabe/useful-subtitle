@@ -11,6 +11,7 @@ import { playPronunciation } from './audio';
 import { fetchWordInfo } from './word';
 import { findVideo, forwardVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo } from './videoControl';
 import { createHoverPause } from './hoverPause';
+import { createCaptionTimeline } from './captionContext';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
 import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
@@ -37,11 +38,15 @@ async function main(): Promise<void> {
   const hoverPause = settings.pauseOnSubtitleHover
     ? createHoverPause({ findVideo, resume: resumeVideo })
     : null;
+  // 画面に出た字幕を時刻順に覚え、解説のときに前後の字幕を添える（字幕をまたぐ文・フレーズ対策）。
+  const timeline = createCaptionTimeline();
+  // いま画面に出ている字幕が出た時刻（前後の字幕を引くキー）。
+  let currentLineTime = 0;
   let overlay!: Overlay;
   overlay = createOverlay(
     {
       onLookup: (selection, sentence, anchor) =>
-        void runLookup(overlay, settings, selection, sentence, anchor),
+        void runLookup(overlay, settings, selection, sentence, anchor, timeline.neighbors(sentence, currentLineTime)),
       onPlayAudio: (selection, audioUrl) => void playPronunciation(selection, audioUrl),
       onSeek: seekVideo,
       onRewind: rewindVideo,
@@ -88,18 +93,19 @@ async function main(): Promise<void> {
     ? createTranscriptPanel({
         onSeek: seekVideo,
         onWordClick: settings.autoPauseOnClick ? pauseVideo : undefined,
-        onExplainWord: async (word, sentence) => {
+        onExplainWord: async (word, sentence, neighbors) => {
           const res = await sendRequest({
             type: 'explainSelection',
             selection: word,
             context: sentence,
+            ...neighbors,
           });
           if (!res.ok) return { ok: false, error: res.error };
           const { senses, explanation } = parseExplanation(res.text);
           return { ok: true, senses, explanation };
         },
-        onExplain: async (sentence) => {
-          const res = await sendRequest({ type: 'explainSentence', text: sentence });
+        onExplain: async (sentence, neighbors) => {
+          const res = await sendRequest({ type: 'explainSentence', text: sentence, ...neighbors });
           if (!res.ok) return { ok: false, error: res.error };
           const { translation, explanation } = parseSentenceMeaning(res.text);
           return { ok: true, translation, explanation };
@@ -128,6 +134,7 @@ async function main(): Promise<void> {
     if (switched) {
       generation++;
       notifyContextChanged();
+      timeline.clear();
       clearHistory();
       cancelTranslation();
       overlay.clearLine();
@@ -184,7 +191,11 @@ async function main(): Promise<void> {
       notifyContextChanged();
       rollingRecorder.breakSequence();
     }
-    if (context.contentId !== previousId) beforeAdText = '';
+    if (context.contentId !== previousId) {
+      beforeAdText = '';
+      // 別の動画の字幕を前後の字幕として混ぜない。
+      timeline.clear();
+    }
     else if (context.isAd && !wasAd) beforeAdText = currentText;
     wasAd = context.isAd;
     wasActive = context.active;
@@ -206,6 +217,8 @@ async function main(): Promise<void> {
     // 字幕が現れた瞬間の動画位置を一度だけ読み、overlay の▶（字幕の頭から再生）と
     // 履歴記録の両方で同じ値を使う（クリック先がブレないように）。
     const videoTime = findVideo()?.currentTime ?? 0;
+    currentLineTime = videoTime;
+    timeline.add(text, videoTime);
     overlay.renderLine(text, tokenizeLine(text), videoTime);
     syncPlayToggle();
 

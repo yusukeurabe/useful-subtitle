@@ -1,5 +1,5 @@
 import { isSingleWord } from './dictionary';
-import type { ExplanationLanguage } from './types';
+import type { CaptionNeighbors, ExplanationLanguage } from './types';
 
 export interface PromptParts {
   system: string;
@@ -27,6 +27,26 @@ const ENGLISH_DEFINITION_RULE =
   '英語の定義は、Cambridge など学習者向け英英辞典の定義文のような平易な英語で、' +
   '日本語訳と同じ意味を1つだけ、20語以内で書く（解説の言語設定にかかわらず英語）。\n';
 
+/** 前後の字幕が1つでもあるか。無ければ従来どおり対象の字幕だけで問う。 */
+function hasNeighbors(n: CaptionNeighbors | undefined): n is CaptionNeighbors {
+  return Boolean(n && ((n.before?.length ?? 0) > 0 || (n.after?.length ?? 0) > 0));
+}
+
+/** 前後の字幕と対象の字幕を、出た順に1行ずつ並べる。 */
+function formatCaptionSequence(target: string, n: CaptionNeighbors): string {
+  return [
+    ...(n.before ?? []).map((t) => `前の字幕: "${t}"`),
+    `対象の字幕: "${target}"`,
+    ...(n.after ?? []).map((t) => `次の字幕: "${t}"`),
+  ].join('\n');
+}
+
+/** 字幕は文やフレーズの途中で切れることがある、という前提（前後の字幕を渡すときだけ付ける）。 */
+const SPLIT_CAPTION_NOTE =
+  '字幕は文やフレーズの途中で区切られ、次の字幕へ続くことがある。前後の字幕を参考として渡すので、' +
+  '対象の字幕が前後の字幕と続いている場合は、つなげた文全体として意味を判断する。' +
+  '前後の字幕が対象と関係なければ無視する。\n';
+
 /**
  * 字幕一文（context）の中の語句（selection）の意味を解説するためのプロンプト。
  * 1単語かフレーズかは isSingleWord でクライアント側が判定し、LLM には片方の
@@ -38,11 +58,28 @@ export function buildExplanationPrompt(
   selection: string,
   context: string,
   language: ExplanationLanguage,
+  neighbors?: CaptionNeighbors,
 ): PromptParts {
   const label = LANGUAGE_LABEL[language];
-  return isSingleWord(selection)
+  const prompt = isSingleWord(selection)
     ? buildWordExplanationPrompt(selection, context, label)
     : buildPhraseExplanationPrompt(selection, context, label);
+  if (!hasNeighbors(neighbors)) return prompt;
+  // 文やフレーズが字幕をまたいでいると、対象の字幕だけでは意味を取り違える
+  // （例: "I'm gonna take" / "a rain check on that." の take）。前後の字幕を並べて渡す。
+  const kind = isSingleWord(selection) ? '単語' : 'フレーズ';
+  return {
+    system:
+      prompt.system +
+      '\n\n' +
+      SPLIT_CAPTION_NOTE +
+      `選択した${kind}が、字幕をまたいで続く句動詞・イディオム・フレーズの一部なら、` +
+      (kind === 'フレーズ' ? '訳はそのフレーズ全体を踏まえた文脈上の意味にし、' : '') +
+      '説明行でそのフレーズ全体（前後の字幕の語句を含めて）と文脈での意味を補足する。',
+    user:
+      `${formatCaptionSequence(context, neighbors)}\n` +
+      `対象の字幕の中の${kind} "${selection}" の意味を教えてください。`,
+  };
 }
 
 function buildWordExplanationPrompt(
@@ -105,8 +142,25 @@ function buildPhraseExplanationPrompt(
 export function buildSentenceMeaningPrompt(
   sentence: string,
   language: ExplanationLanguage,
+  neighbors?: CaptionNeighbors,
 ): PromptParts {
   const label = LANGUAGE_LABEL[language];
+  if (hasNeighbors(neighbors)) {
+    // 訳は対象の字幕の部分だけ（前後の字幕の内容は含めない）。ただし意味は前後を踏まえて決め、
+    // 字幕をまたぐ文・フレーズのつながりは説明で補足する。
+    return {
+      system:
+        'あなたは日本語話者の英語学習を助けるチューターです。' +
+        '対象の字幕について、次の厳密な2行形式で出力してください（前置き・引用符・装飾は付けない）。\n' +
+        '訳: 対象の字幕の部分だけを、前後の字幕を踏まえた正しい意味で自然な日本語に訳す。' +
+        '前後の字幕の内容は訳に含めない。\n' +
+        `説明: ${label}で、文に含まれるイディオム・句動詞・文法・ニュアンスを簡潔に（2〜4文）。` +
+        '文やフレーズが前後の字幕にまたがっている場合は、どの語句と続いて全体でどういう意味になるかも補足する。\n' +
+        '\n' +
+        SPLIT_CAPTION_NOTE,
+      user: `${formatCaptionSequence(sentence, neighbors)}\n対象の字幕の意味を教えてください。`,
+    };
+  }
   return {
     system:
       'あなたは日本語話者の英語学習を助けるチューターです。' +

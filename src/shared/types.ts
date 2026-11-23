@@ -29,13 +29,23 @@ export interface TranslateLineRequest {
   type: 'translateLine';
   text: string;
 }
-export interface ExplainSelectionRequest {
+/**
+ * 対象字幕の前後に出た字幕（古い順）。文やフレーズが字幕をまたいで切れているとき、
+ * 意味を正しく判断するための参考として AI に渡す。無ければフィールドごと省く。
+ */
+export interface CaptionNeighbors {
+  /** 対象の直前の字幕（古い順。最後の要素が対象のすぐ前）。 */
+  before?: string[];
+  /** 対象の直後の字幕（古い順。最初の要素が対象のすぐ後）。 */
+  after?: string[];
+}
+export interface ExplainSelectionRequest extends CaptionNeighbors {
   type: 'explainSelection';
   selection: string;
   context: string;
 }
 /** 字幕一文まるごとの意味（和訳＋解説）を問う。履歴行ホバーで使う。 */
-export interface ExplainSentenceRequest {
+export interface ExplainSentenceRequest extends CaptionNeighbors {
   type: 'explainSentence';
   text: string;
 }

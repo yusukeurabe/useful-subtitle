@@ -34,12 +34,33 @@ it('updates a rolling row in place and uses the latest sentence for hover explan
     expect(row.querySelector('.ja')!.textContent).toBe('');
     wordsOf(row)[1].dispatchEvent(new MouseEvent('mouseenter'));
     await vi.advanceTimersByTimeAsync(500);
-    expect(onExplain).toHaveBeenCalledWith('Good morning');
+    expect(onExplain).toHaveBeenCalledWith('Good morning', {});
     expect(shadow.querySelector('.hover-popup')!.textContent).toContain('おはよう');
     row.click();
     expect(onSeek).toHaveBeenCalledWith(10);
     panel.append({ id: 1, english: 'Good morning everyone', videoTime: 12 });
     expect(shadow.querySelector('.hover-popup')).toBeNull();
+  } finally { panel.destroy(); vi.useRealTimers(); }
+});
+
+it('単語ホバーで、リスト上の前後の字幕を解説に添える（文が字幕をまたぐとき用）', async () => {
+  vi.useFakeTimers();
+  document.body.replaceChildren();
+  const onExplain = vi.fn().mockResolvedValue({ ok: true, translation: '訳', explanation: '説明' });
+  const onExplainWord = vi.fn().mockResolvedValue({ ok: true, senses: [], explanation: '説明' });
+  const panel = createTranscriptPanel({ onSeek: vi.fn(), onExplain, onExplainWord });
+  try {
+    panel.append({ id: 1, english: 'So, about dinner?', videoTime: 8 });
+    panel.append({ id: 2, english: "I'm gonna take", videoTime: 10 });
+    panel.append({ id: 3, english: 'a rain check on that.', videoTime: 12 });
+    panel.append({ id: 4, english: 'Much later.', videoTime: 100 }); // 離れた字幕は渡さない
+    const shadow = document.getElementById(HOST_ID)!.shadowRoot!;
+    const row = shadow.querySelectorAll<HTMLDivElement>('.row')[1]!;
+    wordsOf(row)[2].dispatchEvent(new MouseEvent('mouseenter'));
+    await vi.advanceTimersByTimeAsync(500);
+    const neighbors = { before: ['So, about dinner?'], after: ['a rain check on that.'] };
+    expect(onExplainWord).toHaveBeenCalledWith('take', "I'm gonna take", neighbors);
+    expect(onExplain).toHaveBeenCalledWith("I'm gonna take", neighbors);
   } finally { panel.destroy(); vi.useRealTimers(); }
 });
 

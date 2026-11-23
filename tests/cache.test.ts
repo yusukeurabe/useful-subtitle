@@ -82,3 +82,23 @@ it('separates every request by provider and language', () => {
   expect(makeCacheKey(req, model, 'ja', 'anthropic')).not.toBe(makeCacheKey(req, model, 'ja', 'claude-subscription'));
   expect(makeCacheKey(req, model, 'ja', 'claude-subscription')).not.toBe(makeCacheKey(req, model, 'en', 'claude-subscription'));
 });
+
+describe('makeCacheKey with neighboring captions', () => {
+  const model = 'claude-haiku';
+  it('前後の字幕が違えば別のキーになる', () => {
+    const base = { type: 'explainSelection' as const, selection: 'take', context: "I'm gonna take" };
+    const none = makeCacheKey(base, model, 'ja');
+    const next = makeCacheKey({ ...base, after: ['a rain check.'] }, model, 'ja');
+    const prev = makeCacheKey({ ...base, before: ['a rain check.'] }, model, 'ja');
+    expect(new Set([none, next, prev]).size).toBe(3);
+    const s1 = makeCacheKey({ type: 'explainSentence', text: 'x' }, model, 'ja');
+    const s2 = makeCacheKey({ type: 'explainSentence', text: 'x', after: ['y'] }, model, 'ja');
+    expect(s1).not.toBe(s2);
+  });
+
+  it('explainSentence キーもプロンプトのバージョンを持つ', () => {
+    const [prefix, version] = makeCacheKey({ type: 'explainSentence', text: 'x' }, model, 'ja').split('␟');
+    expect(prefix).toBe('s');
+    expect(version).toMatch(/^v\d+$/);
+  });
+});
