@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  activeRowOffscreen,
   clampReopenPosition,
   createTranscriptPanel,
   nextFollowState,
@@ -205,6 +206,100 @@ describe('createTranscriptPanel — 現在再生行のハイライト', () => {
     panel = createTranscriptPanel({ onSeek: () => {} });
     expect(() => panel!.updateActiveByTime(50)).not.toThrow();
     expect(activeIndex()).toBe(-1);
+  });
+});
+
+describe('activeRowOffscreen — 再生中の行が見えているかの判定', () => {
+  const list = { top: 100, bottom: 500 };
+  it('可視範囲に重なっていれば null', () => {
+    expect(activeRowOffscreen({ top: 200, bottom: 240 }, list)).toBeNull();
+    expect(activeRowOffscreen({ top: 80, bottom: 120 }, list)).toBeNull();
+  });
+  it('上に外れていれば above、下に外れていれば below', () => {
+    expect(activeRowOffscreen({ top: 40, bottom: 100 }, list)).toBe('above');
+    expect(activeRowOffscreen({ top: 500, bottom: 540 }, list)).toBe('below');
+  });
+  it('リストの高さが 0（閉じている・レイアウト前）なら判定せず null', () => {
+    expect(activeRowOffscreen({ top: 900, bottom: 940 }, { top: 0, bottom: 0 })).toBeNull();
+  });
+});
+
+describe('createTranscriptPanel — 再生中の行へ戻るジャンプボタン', () => {
+  let panel: TranscriptPanel | null = null;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+
+  afterEach(() => {
+    panel?.destroy();
+    panel = null;
+  });
+
+  function shadow(): ShadowRoot {
+    return document.getElementById(HOST_ID)!.shadowRoot!;
+  }
+
+  /** リストと各行の位置を差し替える（jsdom はレイアウトを持たないため）。 */
+  function layout(rowTops: number[], listTop: number, listBottom: number): void {
+    const list = shadow().querySelector<HTMLDivElement>('.list')!;
+    list.getBoundingClientRect = () => ({ top: listTop, bottom: listBottom } as DOMRect);
+    shadow().querySelectorAll<HTMLDivElement>('.row').forEach((r, i) => {
+      r.getBoundingClientRect = () => ({ top: rowTops[i], bottom: rowTops[i] + 40 } as DOMRect);
+    });
+  }
+
+  function jump(): HTMLButtonElement {
+    return shadow().querySelector<HTMLButtonElement>('.jump')!;
+  }
+
+  it('再生中の行が見えていればボタンは出ない', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    [10, 20, 30].forEach((t, i) => panel!.append({ id: i + 1, english: `line ${i + 1}`, videoTime: t }));
+    layout([100, 140, 180], 100, 500);
+    panel.updateActiveByTime(25);
+    expect(jump().classList.contains('show')).toBe(false);
+  });
+
+  it('上へスクロールして再生中の行が下に外れるとボタンが出て、押すと戻ってボタンが消える', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    [10, 20, 30].forEach((t, i) => panel!.append({ id: i + 1, english: `line ${i + 1}`, videoTime: t }));
+    panel.updateActiveByTime(35);
+    const rows = shadow().querySelectorAll<HTMLDivElement>('.row');
+    const list = shadow().querySelector<HTMLDivElement>('.list')!;
+
+    // 手動スクロールで再生中の行（3行目）がリストの下へ外れた状態。
+    layout([100, 140, 600], 100, 500);
+    list.scrollTop = 7;
+    list.dispatchEvent(new Event('scroll'));
+    expect(jump().classList.contains('show')).toBe(true);
+    expect(jump().textContent).toContain('↓');
+
+    const spy = vi.fn(() => layout([-400, -360, 300], 100, 500));
+    rows[2].scrollIntoView = spy;
+    jump().click();
+    expect(spy).toHaveBeenCalledWith({ block: 'center' });
+    expect(jump().classList.contains('show')).toBe(false);
+  });
+
+  it('再生中の行が上に外れていると ↑ を出す', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    [10, 20, 30].forEach((t, i) => panel!.append({ id: i + 1, english: `line ${i + 1}`, videoTime: t }));
+    layout([0, 140, 180], 100, 500);
+    panel.updateActiveByTime(12);
+    expect(jump().classList.contains('show')).toBe(true);
+    expect(jump().textContent).toContain('↑');
+  });
+
+  it('clear() でボタンは消える', () => {
+    panel = createTranscriptPanel({ onSeek: () => {} });
+    [10, 20].forEach((t, i) => panel!.append({ id: i + 1, english: `line ${i + 1}`, videoTime: t }));
+    layout([0, 600], 100, 500);
+    panel.updateActiveByTime(25);
+    expect(jump().classList.contains('show')).toBe(true);
+    panel.clear();
+    expect(jump().classList.contains('show')).toBe(false);
   });
 });
 
