@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { pickBestVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo, type VideoLike } from '../src/content/videoControl';
+import { forwardVideo, pickBestVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo, type VideoLike } from '../src/content/videoControl';
 
 /** 既定は「停止中・未再生・未描画」のダミー。必要な項目だけ上書きする。 */
 const v = (o: Partial<VideoLike>): VideoLike => ({
@@ -172,6 +172,78 @@ describe('rewindVideo — 現在位置から指定秒だけ戻して再生', () 
   it('video が無ければ何もしない（例外を出さず play も呼ばない）', () => {
     document.body.replaceChildren();
     expect(() => rewindVideo(5)).not.toThrow();
+    expect(playSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('forwardVideo — 現在位置から指定秒だけ進めて再生', () => {
+  let video: HTMLVideoElement;
+  let current: number;
+  let duration: number;
+  let setTimes: number[];
+  let playSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    document.body.replaceChildren();
+    current = 0;
+    duration = NaN;
+    setTimes = [];
+    playSpy = vi.fn(() => Promise.resolve());
+    video = document.createElement('video');
+    // jsdom は currentTime/duration/play を実装しないので差し替える。
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      get: () => current,
+      set: (t: number) => {
+        current = t;
+        setTimes.push(t);
+      },
+    });
+    Object.defineProperty(video, 'duration', { configurable: true, get: () => duration });
+    Object.defineProperty(video, 'paused', { configurable: true, value: true });
+    video.play = playSpy as unknown as HTMLVideoElement['play'];
+    document.body.appendChild(video);
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it('現在位置から 5 秒進める', () => {
+    current = 42;
+    forwardVideo(5);
+    expect(setTimes).toEqual([47]);
+  });
+
+  it('現在位置から 10 秒進める', () => {
+    current = 42;
+    forwardVideo(10);
+    expect(setTimes).toEqual([52]);
+  });
+
+  it('長さが分かるときは終端の 0.5 秒手前で止める（ended → play で先頭に戻らないため）', () => {
+    duration = 100;
+    current = 95;
+    forwardVideo(10);
+    expect(setTimes).toEqual([99.5]);
+  });
+
+  it('すでに終端の 0.5 秒手前より後ろなら戻さない', () => {
+    duration = 100;
+    current = 99.8;
+    forwardVideo(5);
+    expect(setTimes).toEqual([99.8]);
+  });
+
+  it('進めた後に再生する（停止中は Prime が絵を描き直さないため）', () => {
+    current = 20;
+    forwardVideo(5);
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('video が無ければ何もしない（例外を出さず play も呼ばない）', () => {
+    document.body.replaceChildren();
+    expect(() => forwardVideo(5)).not.toThrow();
     expect(playSpy).not.toHaveBeenCalled();
   });
 });
