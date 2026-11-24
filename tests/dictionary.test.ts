@@ -6,6 +6,7 @@ import {
   extractWordInfo,
   extractCambridgeWordInfo,
   extractCambridgePartsOfSpeech,
+  extractCambridgeDefinitions,
   formatIpaForDisplay,
 } from '../src/shared/dictionary';
 
@@ -312,5 +313,76 @@ describe('extractWordInfo の品詞', () => {
       { meanings: [{ partOfSpeech: 'adjective' }] },
     ];
     expect(extractWordInfo(json).pos).toEqual(['adjective', 'noun']);
+  });
+});
+
+// Cambridge 実ページ（then・run）の構造を縮めたもの。
+// 1つ目の見出しは品詞が2つ（adverb, adjective）。2つ目の見出しには成句（then and there）と、
+// 末尾に派生語（runon。hw の無い pos-header）がある。
+const CAMBRIDGE_DEFS = `
+<div class="pr entry-body__el"><div class="pos-header dpos-h"><div class="di-title"><span class="headword hdb tw-bw dhw dpos-h_hw "><span class="hw dhw">then</span></span></div><div class="posgram dpos-g hdib lmr-5"><span class="pos dpos" title="x">adverb</span>, <span class="pos dpos" title="x">adjective</span></div></div>
+<div class="pr dsense dsense-noh"><div class="sense-body dsense_b"><div class="def-block ddef_block "><div class="ddef_h"><div class="def ddef_d db">(at) that <a class="query" href="/x">time</a> (in the past or in the future): </div></div></div></div></div></div>
+<div class="pr entry-body__el"><div class="pos-header dpos-h"><span class="hw dhw">then</span><span class="pos dpos">adverb</span></div>
+<div class="pr dsense "><h3 class="dsense_h"><span class="hw dsense_hw">then</span> <span class="pos dsense_pos">adverb</span></h3><div class="sense-body dsense_b"><div class="def-block ddef_block "><div class="def ddef_d db">next or <a class="query">after</a> that: </div></div>
+<div class="pr phrase-block dphrase-block lmb-25"><div class="phrase-head dphrase_h"><span class="phrase-title dphrase-title"><b>then and there</b></span></div><div class="phrase-body dphrase_b"><div class="def-block ddef_block "><div class="def ddef_d db">immediately: </div></div></div></div></div></div>
+<div class="pr dsense "><div class="sense-body dsense_b"><div class="def-block ddef_block "><div class="def ddef_d db">in <a>addition</a>: </div></div></div></div>
+<span class="runon-head"><span class="w dw">thenly</span></span><div class="pos-header dpos-h"><span class="pos dpos">adverb</span></div><div class="def ddef_d db">a runon definition: </div>
+</div>`;
+
+describe('extractCambridgeDefinitions', () => {
+  it('見出し語の定義を品詞ごとに取り出し、成句と派生語の定義は除く', () => {
+    expect(extractCambridgeDefinitions(CAMBRIDGE_DEFS)).toEqual([
+      { pos: 'adverb, adjective', defs: ['(at) that time (in the past or in the future)'] },
+      { pos: 'adverb', defs: ['next or after that', 'in addition'] },
+    ]);
+  });
+
+  it('タグを外し、文字参照を戻し、括弧内の余分な空白と末尾のコロンを取る', () => {
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">gauntlet</span><span class="pos dpos">noun</span></div>' +
+      '<div class="pr dsense "><div class="def ddef_d db">a long, thick <a>glove</a> ( <a>hand</a> covering), it&#39;s &amp; worn: </div></div>';
+    expect(extractCambridgeDefinitions(html)).toEqual([
+      { pos: 'noun', defs: ["a long, thick glove (hand covering), it's & worn"] },
+    ]);
+  });
+
+  it('同じ品詞の重複は省き、1つの品詞につき8個までにする', () => {
+    const defs = Array.from({ length: 10 }, (_, i) => `<div class="def ddef_d db">sense ${i}: </div>`).join('');
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>' +
+      `<div class="pr dsense "><div class="def ddef_d db">sense 0: </div>${defs}</div>`;
+    const groups = extractCambridgeDefinitions(html);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].defs).toEqual(['sense 0', 'sense 1', 'sense 2', 'sense 3', 'sense 4', 'sense 5', 'sense 6', 'sense 7']);
+  });
+
+  it('前の見出し語の成句で、語義（dsense）に包まれていない後の見出し語の定義を除かない', () => {
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">noun</span></div>' +
+      '<div class="pr dsense "><div class="def ddef_d db">an act of running: </div>' +
+      '<div class="pr phrase-block dphrase-block"><div class="def ddef_d db">a phrase definition: </div></div></div>' +
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>' +
+      '<div class="def ddef_d db">to move your legs fast: </div>';
+    expect(extractCambridgeDefinitions(html)).toEqual([
+      { pos: 'noun', defs: ['an act of running'] },
+      { pos: 'verb', defs: ['to move your legs fast'] },
+    ]);
+  });
+
+  it('定義が無い・空の HTML では空配列', () => {
+    expect(extractCambridgeDefinitions('')).toEqual([]);
+    expect(extractCambridgeDefinitions('<html>no entry</html>')).toEqual([]);
+  });
+
+  it('extractCambridgeWordInfo は定義も返す', () => {
+    expect(extractCambridgeWordInfo(CAMBRIDGE_DEFS)).toEqual({
+      ipa: null,
+      audioUrl: null,
+      pos: ['adverb', 'adjective'],
+      definitions: [
+        { pos: 'adverb, adjective', defs: ['(at) that time (in the past or in the future)'] },
+        { pos: 'adverb', defs: ['next or after that', 'in addition'] },
+      ],
+    });
   });
 });

@@ -18,7 +18,7 @@ const IPA_FALLBACK = new Map([
 type FetchFn = (url: string) => Promise<Response>;
 
 /**
- * 単語の IPA＋音源 URL＋見出し語の品詞を取得する関数を作る（fetch はテストで差し替え可能）。
+ * 単語の IPA＋音源 URL＋見出し語の品詞と定義を取得する関数を作る（fetch はテストで差し替え可能）。
  *
  * Cambridge を一次、dictionaryapi.dev を予備とし、IPA や音源が欠けていれば予備 API で補う。
  * 取得できた結果はメモリに覚え、同じ単語の再取得（数百KBの HTML）を省く。
@@ -51,9 +51,12 @@ export function createWordInfoFetcher(fetchFn: FetchFn): (word: string) => Promi
     const cam = await tryCambridge(word);
     if (cam.ipa && cam.audioUrl) return cam;
     const dict = await tryDictionaryApi(word);
+    const info: WordInfo = { ipa: cam.ipa ?? dict.ipa, audioUrl: cam.audioUrl ?? dict.audioUrl };
     const pos = cam.pos ?? dict.pos;
-    const info = { ipa: cam.ipa ?? dict.ipa, audioUrl: cam.audioUrl ?? dict.audioUrl };
-    return pos ? { ...info, pos } : info;
+    if (pos) info.pos = pos;
+    // 定義の原文は Cambridge だけから取る（予備APIの定義は使わない）。
+    if (cam.definitions) info.definitions = cam.definitions;
+    return info;
   }
 
   /** 取得中の単語。発音（lookupWord）と解説の品詞が同じ単語を同時に引くので、通信を1回にまとめる。 */
@@ -66,7 +69,7 @@ export function createWordInfoFetcher(fetchFn: FetchFn): (word: string) => Promi
     if (pending) return pending;
     const request = lookup(word).then((info) => {
       // 何も取れなかった結果は一時的な通信失敗の可能性があるので覚えない。
-      if (info.ipa || info.audioUrl || info.pos) {
+      if (info.ipa || info.audioUrl || info.pos || info.definitions) {
         if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
         cache.set(word, info);
       }
@@ -78,7 +81,9 @@ export function createWordInfoFetcher(fetchFn: FetchFn): (word: string) => Promi
 
   return async (word: string): Promise<WordInfo> => {
     const info = await load(word);
-    const result = { ipa: info.ipa ?? IPA_FALLBACK.get(word) ?? null, audioUrl: info.audioUrl };
-    return info.pos ? { ...result, pos: info.pos } : result;
+    const result: WordInfo = { ipa: info.ipa ?? IPA_FALLBACK.get(word) ?? null, audioUrl: info.audioUrl };
+    if (info.pos) result.pos = info.pos;
+    if (info.definitions) result.definitions = info.definitions;
+    return result;
   };
 }

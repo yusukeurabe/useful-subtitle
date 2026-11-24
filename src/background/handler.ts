@@ -7,6 +7,7 @@ import type { NativeParams, NativeContext } from './nativeClient';
 import { makeCacheKey } from './cache';
 import { AiError, type AnthropicParams } from './aiClient';
 import { normalizeWord, isSingleWord, type WordInfo } from '../shared/dictionary';
+import { numberDefinitions, resolveDefinitionRefs } from '../shared/definitionRefs';
 import type {
   RequestMessage,
   ResponseMessage,
@@ -22,7 +23,7 @@ export interface HandlerDeps {
   setCached: (key: string, value: string) => Promise<void>;
   callAi: (params: AnthropicParams) => Promise<string>;
   callSubscription: (params: NativeParams, context: NativeContext) => Promise<string>;
-  /** 単語の発音情報（IPA＋音源URL）と見出し語の品詞を取得する（辞書）。 */
+  /** 単語の発音情報（IPA＋音源URL）と見出し語の品詞・定義を取得する（辞書）。 */
   getWordInfo: (word: string) => Promise<WordInfo>;
   /** 音源URLを offscreen で再生する。 */
   playOffscreenAudio: (url: string) => Promise<void>;
@@ -30,21 +31,21 @@ export interface HandlerDeps {
   loginSubscription: () => Promise<void>;
 }
 
-/** 辞書の品詞を待つ上限。辞書が遅いときは品詞なしで解説を進める（解説を止めない）。 */
-const DICTIONARY_POS_TIMEOUT_MS = 2500;
+/** 辞書（品詞・定義）を待つ上限。辞書が遅いときは辞書なしで解説を進める（解説を止めない）。 */
+const DICTIONARY_TIMEOUT_MS = 2500;
 
 /**
- * 解説の前に、辞書に載っている見出し語の品詞を引く（AI が文脈から辞書に無い品詞を作るのを防ぐ）。
+ * 解説の前に、辞書に載っている見出し語の品詞と定義を引く。品詞は AI が文脈から辞書に無い品詞を
+ * 作るのを防ぐため、定義は英語の意味を Cambridge の原文にするために使う。
  * 取得は発音表示と共有のキャッシュ・同時取得まとめを通るので、多くは既に取得中か取得済み。
  */
-async function lookupPartsOfSpeech(deps: HandlerDeps, word: string): Promise<string[] | undefined> {
+async function lookupDictionary(deps: HandlerDeps, word: string): Promise<WordInfo | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<undefined>((resolve) => {
-    timer = setTimeout(() => resolve(undefined), DICTIONARY_POS_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(undefined), DICTIONARY_TIMEOUT_MS);
   });
   try {
-    const info = await Promise.race([deps.getWordInfo(word), timeout]);
-    return info?.pos;
+    return await Promise.race([deps.getWordInfo(word), timeout]);
   } catch {
     return undefined;
   } finally {
@@ -140,26 +141,32 @@ export async function handleRequest(
       return { ok: true, text: cached };
     }
 
-    const dictionaryPos =
-      req.type === 'explainSelection' && isSingleWord(req.selection)
-        ? await lookupPartsOfSpeech(deps, normalizeWord(req.selection))
-        : undefined;
+    const needsDictionary = req.type === 'explainSelection' && isSingleWord(req.selection);
+    const dictionary = needsDictionary ? await lookupDictionary(deps, normalizeWord(req.selection)) : undefined;
     ensureCurrent();
+    const candidates = numberDefinitions(dictionary?.definitions);
 
     const prompt =
       req.type === 'translateLine'
         ? buildTranslationPrompt(req.text)
         : req.type === 'explainSentence'
           ? buildSentenceMeaningPrompt(req.text, settings.explanationLanguage, req)
-          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage, req, dictionaryPos);
+          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage, req, dictionary?.pos, candidates);
 
-    const text = await call({
+    const raw = await call({
       model: settings.model,
       system: prompt.system,
       user: prompt.user,
     });
     ensureCurrent();
-    await deps.setCached(key, text);
+    // AI が選んだ定義の番号を Cambridge の原文に差し替えてから保存する（候補が無ければそのまま）。
+    const text = resolveDefinitionRefs(raw, candidates);
+    // 1単語の解説で辞書が時間切れ・失敗（undefined）だったときは保存しない。一時的な遅さで
+    // Cambridge の原文の無い応答が永続キャッシュに残り続けるのを防ぐ。Cambridge に載っていない
+    // 単語は WordInfo が返る（undefined ではない）ので、従来どおり保存する。
+    if (!(needsDictionary && dictionary === undefined)) {
+      await deps.setCached(key, text);
+    }
     ensureCurrent();
     return { ok: true, text };
   } catch (e) {

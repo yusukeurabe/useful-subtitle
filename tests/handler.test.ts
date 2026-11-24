@@ -137,18 +137,21 @@ describe('handleRequest', () => {
     expect(getWordInfo).not.toHaveBeenCalled();
   });
 
-  it('辞書が失敗しても解説は続ける', async () => {
+  it('辞書が失敗しても解説は続ける（一時的な失敗の応答は保存しない）', async () => {
+    const setCached = vi.fn(async () => {});
     const res = await handleRequest(
       { type: 'explainSelection', selection: 'word', context: 'a word' },
-      deps({ getWordInfo: async () => { throw new Error('offline'); } }),
+      deps({ getWordInfo: async () => { throw new Error('offline'); }, setCached }),
     );
     expect(res).toEqual({ ok: true, text: 'AI_RESULT' });
+    expect(setCached).not.toHaveBeenCalled();
   });
 
-  it('辞書の応答が遅いときは待ちすぎずに解説を続ける', async () => {
+  it('辞書の応答が遅いときは待ちすぎずに解説を続け、その応答は保存しない', async () => {
     vi.useFakeTimers();
     try {
       let system = '';
+      const setCached = vi.fn(async () => {});
       const pending = handleRequest(
         { type: 'explainSelection', selection: 'word', context: 'a word' },
         deps({
@@ -157,14 +160,70 @@ describe('handleRequest', () => {
             system = p.system;
             return 'ok';
           },
+          setCached,
         }),
       );
       await vi.advanceTimersByTimeAsync(5000);
       expect(await pending).toEqual({ ok: true, text: 'ok' });
       expect(system).not.toContain('辞書に載っている品詞:');
+      expect(system).not.toContain('Cambridge 辞書の英語の定義の候補');
+      expect(setCached).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('Cambridge の定義の候補を渡し、応答の番号を原文にしてから保存して返す', async () => {
+    let system = '';
+    let stored = '';
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'incremental', context: '$30 trillion a year incremental.' },
+      deps({
+        getWordInfo: async () => ({
+          ipa: null,
+          audioUrl: null,
+          pos: ['adjective'],
+          definitions: [{ pos: 'adjective', defs: ['in a series of amounts', 'happening gradually, in a series of small amounts'] }],
+        }),
+        callAi: async (p: AnthropicParams) => {
+          system = p.system;
+          return 'Adj.: 増分の・追加の | [2]\n説明: x';
+        },
+        setCached: async (_k: string, v: string) => {
+          stored = v;
+        },
+      }),
+    );
+    expect(system).toContain('[2] (adjective) happening gradually, in a series of small amounts');
+    const expected = 'Adj.: 増分の・追加の | happening gradually, in a series of small amounts\n説明: x';
+    expect(res).toEqual({ ok: true, text: expected });
+    expect(stored).toBe(expected);
+  });
+
+  it('Cambridge に載っていない単語（WordInfo は返る）の応答は従来どおり保存する', async () => {
+    const setCached = vi.fn(async () => {});
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'word', context: 'a word' },
+      deps({ getWordInfo: async () => ({ ipa: null, audioUrl: null }), setCached }),
+    );
+    expect(res).toEqual({ ok: true, text: 'AI_RESULT' });
+    expect(setCached).toHaveBeenCalledWith(expect.any(String), 'AI_RESULT');
+  });
+
+  it('辞書に定義が無ければ候補を渡さず、応答もそのまま', async () => {
+    let system = '';
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'word', context: 'a word' },
+      deps({
+        getWordInfo: async () => ({ ipa: null, audioUrl: null, pos: ['noun'] }),
+        callAi: async (p: AnthropicParams) => {
+          system = p.system;
+          return 'N[C]: 語 | a unit of language';
+        },
+      }),
+    );
+    expect(system).not.toContain('Cambridge 辞書の英語の定義の候補');
+    expect(res).toEqual({ ok: true, text: 'N[C]: 語 | a unit of language' });
   });
 
   it('handles lookupWord without an API key and returns word info', async () => {
