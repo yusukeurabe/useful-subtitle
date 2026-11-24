@@ -167,6 +167,49 @@ describe('handleRequest', () => {
     }
   });
 
+  it('Cambridge の定義の候補を渡し、応答の番号を原文にしてから保存して返す', async () => {
+    let system = '';
+    let stored = '';
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'incremental', context: '$30 trillion a year incremental.' },
+      deps({
+        getWordInfo: async () => ({
+          ipa: null,
+          audioUrl: null,
+          pos: ['adjective'],
+          definitions: [{ pos: 'adjective', defs: ['in a series of amounts', 'happening gradually, in a series of small amounts'] }],
+        }),
+        callAi: async (p: AnthropicParams) => {
+          system = p.system;
+          return 'Adj.: 増分の・追加の | [2]\n説明: x';
+        },
+        setCached: async (_k: string, v: string) => {
+          stored = v;
+        },
+      }),
+    );
+    expect(system).toContain('[2] (adjective) happening gradually, in a series of small amounts');
+    const expected = 'Adj.: 増分の・追加の | happening gradually, in a series of small amounts\n説明: x';
+    expect(res).toEqual({ ok: true, text: expected });
+    expect(stored).toBe(expected);
+  });
+
+  it('辞書に定義が無ければ候補を渡さず、応答もそのまま', async () => {
+    let system = '';
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'word', context: 'a word' },
+      deps({
+        getWordInfo: async () => ({ ipa: null, audioUrl: null, pos: ['noun'] }),
+        callAi: async (p: AnthropicParams) => {
+          system = p.system;
+          return 'N[C]: 語 | a unit of language';
+        },
+      }),
+    );
+    expect(system).not.toContain('Cambridge 辞書の英語の定義の候補');
+    expect(res).toEqual({ ok: true, text: 'N[C]: 語 | a unit of language' });
+  });
+
   it('handles lookupWord without an API key and returns word info', async () => {
     const res = await handleRequest(
       { type: 'lookupWord', text: 'resilient' },
