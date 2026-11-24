@@ -18,6 +18,30 @@ describe('buildTranslationPrompt', () => {
   });
 });
 
+describe('buildExplanationPrompt の辞書の品詞', () => {
+  it('辞書の品詞を渡すと、その品詞だけで書くよう指示する（incremental が名詞にされた不具合）', () => {
+    const { system } = buildExplanationPrompt('incremental', '$30 trillion a year incremental.', 'ja', undefined, ['adjective']);
+    expect(system).toContain('辞書に載っている品詞: adjective');
+    expect(system).toMatch(/この品詞だけ/);
+  });
+
+  it('前後の字幕を渡すときも辞書の品詞の指示を残す', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja', { after: ['b'] }, ['adjective', 'adverb']);
+    expect(system).toContain('辞書に載っている品詞: adjective, adverb');
+  });
+
+  it('辞書の品詞が無くても、文脈上の使われ方で辞書に無い品詞を作らないよう指示する', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja');
+    expect(system).not.toContain('辞書に載っている品詞:');
+    expect(system).toMatch(/文脈で別の品詞のように使われていても/);
+  });
+
+  it('フレーズには辞書の品詞を渡さない', () => {
+    const { system } = buildExplanationPrompt('break a leg', 'a', 'ja', undefined, ['noun']);
+    expect(system).not.toContain('辞書に載っている品詞:');
+  });
+});
+
 describe('buildExplanationPrompt', () => {
   it('includes both the selected phrase and the surrounding sentence', () => {
     const { user } = buildExplanationPrompt(

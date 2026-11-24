@@ -1,7 +1,14 @@
-/** 辞書から得る単語情報（発音記号と音源URL）。 */
+/** 辞書から得る単語情報（発音記号と音源URL、見出し語の品詞）。 */
 export interface WordInfo {
   ipa: string | null;
   audioUrl: string | null;
+  /** 辞書に載っている見出し語の品詞（"adjective" など英語・出現順・重複なし）。取れなければ省略。 */
+  pos?: string[];
+}
+
+/** 品詞が1つ以上あるときだけ pos を付ける（空配列は持たない）。 */
+function withPos(info: { ipa: string | null; audioUrl: string | null }, pos: string[]): WordInfo {
+  return pos.length > 0 ? { ...info, pos } : info;
 }
 
 // 許可する語の構成文字（英字・数字・内部アポストロフィ・ハイフン）。
@@ -44,6 +51,7 @@ interface RawPhonetic {
 interface RawEntry {
   phonetic?: unknown;
   phonetics?: unknown;
+  meanings?: unknown;
 }
 
 /**
@@ -80,7 +88,39 @@ export function extractWordInfo(json: unknown): WordInfo {
       .find((t): t is string => t !== null) ?? null;
   const ipa = textOf(chosen) ?? firstText ?? topPhonetic ?? null;
 
-  return { ipa, audioUrl };
+  const pos = entries.flatMap((e) =>
+    Array.isArray(e?.meanings)
+      ? (e.meanings as Array<{ partOfSpeech?: unknown }>).map((m) => m?.partOfSpeech)
+      : [],
+  );
+  return withPos({ ipa, audioUrl }, unique(pos));
+}
+
+/** 文字列だけを取り出し、前後の空白を除いて重複を省く（出現順は保つ）。 */
+function unique(values: unknown[]): string[] {
+  const out: string[] = [];
+  for (const v of values) {
+    const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Cambridge 英英ページ HTML から見出し語の品詞を出現順・重複なしで取り出す。
+ * 派生語（incremental のページの incrementally など）も同じ pos-header に品詞を持つが、
+ * 見出し語（class="hw"）が無いので除く。見出し語の品詞だけを AI に渡すため。
+ */
+export function extractCambridgePartsOfSpeech(html: string): string[] {
+  if (!html) return [];
+  const found: string[] = [];
+  for (const m of html.matchAll(/<span\s+class="pos\s+dpos"[^>]*>([^<]*)<\/span>/gi)) {
+    const header = html.lastIndexOf('pos-header', m.index);
+    if (header < 0) continue;
+    if (!/class="hw[\s"]/.test(html.slice(header, m.index))) continue;
+    found.push(m[1]);
+  }
+  return unique(found);
 }
 
 /**
@@ -93,14 +133,15 @@ export function extractWordInfo(json: unknown): WordInfo {
 export function extractCambridgeWordInfo(html: string): WordInfo {
   if (!html) return { ipa: null, audioUrl: null };
   try {
+    const pos = extractCambridgePartsOfSpeech(html);
     const us = extractSpanContents(html, ['us', 'dpron-i']);
-    if (!us) return { ipa: null, audioUrl: null };
+    if (!us) return withPos({ ipa: null, audioUrl: null }, pos);
 
     const ipa = extractSpanContents(us, ['ipa', 'dipa'])?.replace(/<[^>]*>/g, '').trim() || null;
     const src = extractCambridgeMp3Src(us);
     const audioUrl = src ? absolutizeCambridgeUrl(src) : null;
 
-    return { ipa, audioUrl };
+    return withPos({ ipa, audioUrl }, pos);
   } catch {
     return { ipa: null, audioUrl: null };
   }

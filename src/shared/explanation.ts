@@ -16,8 +16,59 @@ export interface ParsedExplanation {
   explanation: string;
 }
 
-/** 品詞行 = 行頭の任意の箇条書き記号 + 英字始まりの品詞コード(英字・. [ ] /) + コロン + 訳。 */
-const POS_LINE = /^\s*[-*]?\s*([A-Za-z][A-Za-z.[\]/]*)\s*[:：]\s*(.+?)\s*$/;
+/**
+ * 「ラベル: 本文」の行（行頭の箇条書き記号は任意）。ラベルは最初のコロンまでの短い文字列。
+ * 品詞かどうかはラベルを toPosCode にかけて判断する。
+ */
+const LABELED_LINE = /^\s*(?:[-・•]\s*|\*\s+)?([^:：|｜]{1,30}?)\s*[:：]\s*(.+?)\s*$/;
+/** そのまま品詞コードとして受け付ける形（英字・. [ ] /）。 */
+const POS_CODE = /^[A-Za-z][A-Za-z.[\]/]*$/;
+
+/**
+ * LLM は指示しても品詞を日本語名や英語の綴りで返すことがある（incremental で「形容詞:」が返り、
+ * 行ごと捨てられて意味が空になった）。よく出る呼び方をプロンプトの品詞コードにそろえる。
+ */
+const POS_ALIASES: Record<string, string> = {
+  名詞: 'N',
+  可算名詞: 'N[C]',
+  不可算名詞: 'N[U]',
+  動詞: 'V',
+  自動詞: 'V[I]',
+  他動詞: 'V[T]',
+  形容詞: 'Adj.',
+  副詞: 'Adv.',
+  代名詞: 'Pron.',
+  前置詞: 'Prep.',
+  接続詞: 'Conj.',
+  限定詞: 'Det.',
+  冠詞: 'Det.',
+  間投詞: 'Int.',
+  感動詞: 'Int.',
+  noun: 'N',
+  verb: 'V',
+  adjective: 'Adj.',
+  adverb: 'Adv.',
+  pronoun: 'Pron.',
+  preposition: 'Prep.',
+  conjunction: 'Conj.',
+  determiner: 'Det.',
+  interjection: 'Int.',
+};
+
+/** ラベルから装飾（**太字**・`コード`）と括弧書き（「Adj.（形容詞）」の（形容詞））を外す。 */
+function cleanLabel(raw: string): string {
+  return raw
+    .replace(/[*_`]/g, '')
+    .replace(/\s*[(（][^)）]*[)）]\s*/g, '')
+    .trim();
+}
+
+/** ラベルを品詞コードにする。品詞と認められなければ null（訳:・例: などはここで弾く）。 */
+function toPosCode(label: string): string | null {
+  const alias = POS_ALIASES[label] ?? POS_ALIASES[label.toLowerCase()];
+  if (alias) return alias;
+  return POS_CODE.test(label) ? label : null;
+}
 /** フレーズ・旧キャッシュ用の単一訳ラベル（訳: / 訳語:）。 */
 const GLOSS_LINE = /^\s*訳(?:語)?\s*[:：]\s*(.+?)\s*$/;
 /** 説明ラベル行（全角コロン可）。 */
@@ -63,20 +114,22 @@ export function parseExplanation(raw: string): ParsedExplanation {
   const consumed = new Set<number>();
 
   headLines.forEach((line, i) => {
-    const m = line.match(POS_LINE);
+    const m = line.match(LABELED_LINE);
     if (!m) return;
+    const pos = toPosCode(cleanLabel(m[1]));
+    if (!pos) return;
     const { gloss, definition } = splitGlossAndDefinition(m[2]);
     if (!gloss) return;
     consumed.add(i);
     // LLM が同じ品詞行を繰り返すことがある（then で "Adv.: …" が2行出た）。
     // 同じ品詞は1行にまとめ、訳語は重複を除いて最大3つに丸める。英語の定義は最初のものを残す。
-    const same = senses.find((s) => s.pos === m[1]);
+    const same = senses.find((s) => s.pos === pos);
     if (same) {
       same.gloss = normalizeGloss(`${same.gloss}・${gloss}`.split('・').filter((t, j, a) => a.indexOf(t) === j).join('・'));
       if (!same.definition && definition) same.definition = definition;
       return;
     }
-    senses.push(definition ? { pos: m[1], gloss, definition } : { pos: m[1], gloss });
+    senses.push(definition ? { pos, gloss, definition } : { pos, gloss });
   });
 
   // 品詞行が 1 つも無いときだけ、フレーズ/旧形式の "訳:" を 1 件として拾う。
@@ -90,6 +143,23 @@ export function parseExplanation(raw: string): ParsedExplanation {
         consumed.add(i);
       }
       break;
+    }
+  }
+
+  // 最後の砦: 品詞も「訳:」も読めなくても、「訳 | 英語の定義」の形の行があれば意味として残す。
+  // 想定外の品詞名（助動詞 など）でも、意味の欄が丸ごと消えるよりはラベルのまま出す方がよい。
+  if (senses.length === 0) {
+    const i = headLines.findIndex((l) => /[|｜]/.test(l));
+    if (i >= 0) {
+      const m = headLines[i].match(LABELED_LINE);
+      const label = m ? cleanLabel(m[1]) : '';
+      const body = m ? m[2] : headLines[i].replace(/^\s*(?:[-・•]\s*|\*\s+)?/, '');
+      const { gloss, definition } = splitGlossAndDefinition(body);
+      if (gloss) {
+        const pos = label && label.length <= 12 ? label : null;
+        senses.push(definition ? { pos, gloss, definition } : { pos, gloss });
+        consumed.add(i);
+      }
     }
   }
 

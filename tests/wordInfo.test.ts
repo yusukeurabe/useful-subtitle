@@ -90,4 +90,33 @@ describe('createWordInfoFetcher', () => {
     await get('run');
     expect(f.mock.calls.length).toBeGreaterThan(2);
   });
+
+  it('Cambridge の見出し語の品詞を返す', async () => {
+    const html = `<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>${CAMBRIDGE_WITH_AUDIO}`;
+    const f = fetcher(response(html), response(DICT_API_JSON));
+    expect((await createWordInfoFetcher(f)('run')).pos).toEqual(['verb']);
+  });
+
+  it('Cambridge に品詞が無ければ予備APIの品詞を使う', async () => {
+    const f = fetcher(response('', false), response([{ ...DICT_API_JSON[0], meanings: [{ partOfSpeech: 'verb' }] }]));
+    expect((await createWordInfoFetcher(f)('run')).pos).toEqual(['verb']);
+  });
+
+  it('品詞だけ取れた結果も覚えておく', async () => {
+    const html = '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>';
+    const f = fetcher(response(html), response([]));
+    const get = createWordInfoFetcher(f);
+    await get('run');
+    const calls = f.mock.calls.length;
+    expect((await get('run')).pos).toEqual(['verb']);
+    expect(f).toHaveBeenCalledTimes(calls);
+  });
+
+  it('同じ単語の同時取得は1回の通信にまとめる（発音と解説が同時に辞書を引く）', async () => {
+    const f = fetcher(response(CAMBRIDGE_WITH_AUDIO), response(DICT_API_JSON));
+    const get = createWordInfoFetcher(f);
+    const [a, b] = await Promise.all([get('run'), get('run')]);
+    expect(a).toEqual(b);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
 });

@@ -22,12 +22,34 @@ export interface HandlerDeps {
   setCached: (key: string, value: string) => Promise<void>;
   callAi: (params: AnthropicParams) => Promise<string>;
   callSubscription: (params: NativeParams, context: NativeContext) => Promise<string>;
-  /** 単語の発音情報（IPA＋音源URL）を取得する（辞書API）。 */
+  /** 単語の発音情報（IPA＋音源URL）と見出し語の品詞を取得する（辞書）。 */
   getWordInfo: (word: string) => Promise<WordInfo>;
   /** 音源URLを offscreen で再生する。 */
   playOffscreenAudio: (url: string) => Promise<void>;
   /** Claude サブスク接続の再ログイン（公式 CLI の auth login）。 */
   loginSubscription: () => Promise<void>;
+}
+
+/** 辞書の品詞を待つ上限。辞書が遅いときは品詞なしで解説を進める（解説を止めない）。 */
+const DICTIONARY_POS_TIMEOUT_MS = 2500;
+
+/**
+ * 解説の前に、辞書に載っている見出し語の品詞を引く（AI が文脈から辞書に無い品詞を作るのを防ぐ）。
+ * 取得は発音表示と共有のキャッシュ・同時取得まとめを通るので、多くは既に取得中か取得済み。
+ */
+async function lookupPartsOfSpeech(deps: HandlerDeps, word: string): Promise<string[] | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), DICTIONARY_POS_TIMEOUT_MS);
+  });
+  try {
+    const info = await Promise.race([deps.getWordInfo(word), timeout]);
+    return info?.pos;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -118,12 +140,18 @@ export async function handleRequest(
       return { ok: true, text: cached };
     }
 
+    const dictionaryPos =
+      req.type === 'explainSelection' && isSingleWord(req.selection)
+        ? await lookupPartsOfSpeech(deps, normalizeWord(req.selection))
+        : undefined;
+    ensureCurrent();
+
     const prompt =
       req.type === 'translateLine'
         ? buildTranslationPrompt(req.text)
         : req.type === 'explainSentence'
           ? buildSentenceMeaningPrompt(req.text, settings.explanationLanguage, req)
-          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage, req);
+          : buildExplanationPrompt(req.selection, req.context, settings.explanationLanguage, req, dictionaryPos);
 
     const text = await call({
       model: settings.model,

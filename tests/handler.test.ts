@@ -110,6 +110,63 @@ describe('handleRequest', () => {
     expect(users[1]).toContain('前の字幕: "So?"');
   });
 
+  it('1単語の解説では辞書の品詞を引いてプロンプトに渡す', async () => {
+    let system = '';
+    const looked: string[] = [];
+    await handleRequest(
+      { type: 'explainSelection', selection: 'Incremental.', context: '$30 trillion a year incremental.' },
+      deps({
+        getWordInfo: async (w: string) => {
+          looked.push(w);
+          return { ipa: null, audioUrl: null, pos: ['adjective'] };
+        },
+        callAi: async (p: AnthropicParams) => {
+          system = p.system;
+          return 'ok';
+        },
+      }),
+    );
+    expect(looked).toEqual(['incremental']);
+    expect(system).toContain('辞書に載っている品詞: adjective');
+  });
+
+  it('キャッシュがあれば辞書を引かない・フレーズでは辞書を引かない', async () => {
+    const getWordInfo = vi.fn(async () => ({ ipa: null, audioUrl: null, pos: ['noun'] }));
+    await handleRequest({ type: 'explainSelection', selection: 'x', context: 'y' }, deps({ getWordInfo, getCached: async () => 'cached' }));
+    await handleRequest({ type: 'explainSelection', selection: 'break a leg', context: 'y' }, deps({ getWordInfo }));
+    expect(getWordInfo).not.toHaveBeenCalled();
+  });
+
+  it('辞書が失敗しても解説は続ける', async () => {
+    const res = await handleRequest(
+      { type: 'explainSelection', selection: 'word', context: 'a word' },
+      deps({ getWordInfo: async () => { throw new Error('offline'); } }),
+    );
+    expect(res).toEqual({ ok: true, text: 'AI_RESULT' });
+  });
+
+  it('辞書の応答が遅いときは待ちすぎずに解説を続ける', async () => {
+    vi.useFakeTimers();
+    try {
+      let system = '';
+      const pending = handleRequest(
+        { type: 'explainSelection', selection: 'word', context: 'a word' },
+        deps({
+          getWordInfo: () => new Promise(() => {}),
+          callAi: async (p: AnthropicParams) => {
+            system = p.system;
+            return 'ok';
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await pending).toEqual({ ok: true, text: 'ok' });
+      expect(system).not.toContain('辞書に載っている品詞:');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('handles lookupWord without an API key and returns word info', async () => {
     const res = await handleRequest(
       { type: 'lookupWord', text: 'resilient' },

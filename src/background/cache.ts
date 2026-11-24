@@ -16,7 +16,7 @@ const STORAGE_PREFIX = 'cache:';
  * 過去キャッシュは別キーに移るので破棄され、新プロンプトで再生成される。
  * （古いエントリは storage に残るが orphan として無視される。）
  */
-const EXPLANATION_PROMPT_VERSION = 'v4';
+const EXPLANATION_PROMPT_VERSION = 'v5';
 
 /**
  * explainSentence プロンプトのバージョン。v1 は前後の字幕を渡す前の形式（バージョン欄なし）。
