@@ -115,6 +115,83 @@ describe('parseExplanation', () => {
     expect(r.senses).toEqual([]);
     expect(r.explanation).toBe('');
   });
+
+  // 実際に Brave で incremental の意味が出なかったときの応答（品詞が日本語名だった）。
+  it('maps a Japanese POS name (形容詞) to its code instead of dropping the line', () => {
+    const r = parseExplanation(
+      '形容詞: 増分の・追加の | Increasing by a small, additional amount added to something that already exists.\n' +
+        '説明: ここでは「年間30兆ドルの増分」という意味です。',
+    );
+    expect(r.senses).toEqual([
+      {
+        pos: 'Adj.',
+        gloss: '増分の・追加の',
+        definition: 'Increasing by a small, additional amount added to something that already exists.',
+      },
+    ]);
+    expect(r.explanation).toBe('ここでは「年間30兆ドルの増分」という意味です。');
+  });
+
+  it.each([
+    ['名詞', 'N'],
+    ['可算名詞', 'N[C]'],
+    ['不可算名詞', 'N[U]'],
+    ['動詞', 'V'],
+    ['自動詞', 'V[I]'],
+    ['他動詞', 'V[T]'],
+    ['副詞', 'Adv.'],
+    ['代名詞', 'Pron.'],
+    ['前置詞', 'Prep.'],
+    ['接続詞', 'Conj.'],
+    ['限定詞', 'Det.'],
+    ['間投詞', 'Int.'],
+    ['感動詞', 'Int.'],
+  ])('maps the Japanese POS name %s to %s', (name, code) => {
+    expect(parseExplanation(`${name}: 訳 | def\n説明: x`).senses).toEqual([
+      { pos: code, gloss: '訳', definition: 'def' },
+    ]);
+  });
+
+  it.each([
+    ['Adjective', 'Adj.'],
+    ['noun', 'N'],
+    ['Verb', 'V'],
+    ['Adverb', 'Adv.'],
+  ])('maps the spelled-out English POS name %s to %s', (name, code) => {
+    expect(parseExplanation(`${name}: 訳\n説明: x`).senses).toEqual([{ pos: code, gloss: '訳' }]);
+  });
+
+  it('accepts a code followed by a parenthesized Japanese name', () => {
+    expect(parseExplanation('Adj.（形容詞）: 増分の\n説明: x').senses).toEqual([
+      { pos: 'Adj.', gloss: '増分の' },
+    ]);
+    expect(parseExplanation('Adj. (形容詞): 増分の\n説明: x').senses).toEqual([
+      { pos: 'Adj.', gloss: '増分の' },
+    ]);
+  });
+
+  it('accepts a markdown-bolded POS code', () => {
+    expect(parseExplanation('**Adj.**: 増分の\n説明: x').senses).toEqual([
+      { pos: 'Adj.', gloss: '増分の' },
+    ]);
+  });
+
+  it('keeps an unrecognized label line with | as a sense rather than dropping the meaning', () => {
+    expect(parseExplanation('助動詞: 〜できる | used to say that something is possible\n説明: x').senses).toEqual([
+      { pos: '助動詞', gloss: '〜できる', definition: 'used to say that something is possible' },
+    ]);
+  });
+
+  it('keeps an unlabeled "gloss | definition" line as a POS-less sense', () => {
+    expect(parseExplanation('増分の | added to something\n説明: x').senses).toEqual([
+      { pos: null, gloss: '増分の', definition: 'added to something' },
+    ]);
+  });
+
+  it('does not treat unknown non-POS labels without | as senses', () => {
+    const r = parseExplanation('例: an incremental increase\n説明: x');
+    expect(r.senses).toEqual([]);
+  });
 });
 
 describe('parseSentenceMeaning', () => {
