@@ -1,14 +1,29 @@
-/** 辞書から得る単語情報（発音記号と音源URL、見出し語の品詞）。 */
+/** Cambridge の見出し語の定義（品詞ごと）。 */
+export interface DefinitionGroup {
+  /** その見出しの品詞（"adjective"。1つの見出しに品詞が複数あれば "adverb, adjective"）。 */
+  pos: string;
+  /** 定義の原文（ページに出てくる順・重複なし・最大8個）。 */
+  defs: string[];
+}
+
+/** 辞書から得る単語情報（発音記号と音源URL、見出し語の品詞と定義）。 */
 export interface WordInfo {
   ipa: string | null;
   audioUrl: string | null;
   /** 辞書に載っている見出し語の品詞（"adjective" など英語・出現順・重複なし）。取れなければ省略。 */
   pos?: string[];
+  /** Cambridge の見出し語の定義（品詞ごと）。取れなければ省略。 */
+  definitions?: DefinitionGroup[];
 }
 
 /** 品詞が1つ以上あるときだけ pos を付ける（空配列は持たない）。 */
-function withPos(info: { ipa: string | null; audioUrl: string | null }, pos: string[]): WordInfo {
+function withPos(info: WordInfo, pos: string[]): WordInfo {
   return pos.length > 0 ? { ...info, pos } : info;
+}
+
+/** 定義が1つ以上あるときだけ definitions を付ける（空配列は持たない）。 */
+function withDefinitions(info: WordInfo, definitions: DefinitionGroup[]): WordInfo {
+  return definitions.length > 0 ? { ...info, definitions } : info;
 }
 
 // 許可する語の構成文字（英字・数字・内部アポストロフィ・ハイフン）。
@@ -106,6 +121,9 @@ function unique(values: unknown[]): string[] {
   return out;
 }
 
+/** 見出し・派生語の品詞の span（語義ごとの "pos dsense_pos" は含めない）。 */
+const POS_SPAN = /<span\s+class="pos\s+dpos"[^>]*>([^<]*)<\/span>/gi;
+
 /**
  * Cambridge 英英ページ HTML から見出し語の品詞を出現順・重複なしで取り出す。
  * 派生語（incremental のページの incrementally など）も同じ pos-header に品詞を持つが、
@@ -114,7 +132,7 @@ function unique(values: unknown[]): string[] {
 export function extractCambridgePartsOfSpeech(html: string): string[] {
   if (!html) return [];
   const found: string[] = [];
-  for (const m of html.matchAll(/<span\s+class="pos\s+dpos"[^>]*>([^<]*)<\/span>/gi)) {
+  for (const m of html.matchAll(POS_SPAN)) {
     const header = html.lastIndexOf('pos-header', m.index);
     if (header < 0) continue;
     if (!/class="hw[\s"]/.test(html.slice(header, m.index))) continue;
@@ -123,8 +141,77 @@ export function extractCambridgePartsOfSpeech(html: string): string[] {
   return unique(found);
 }
 
+/** 1つの品詞につき AI に渡す定義の候補の上限。 */
+const MAX_DEFINITIONS_PER_POS = 8;
+
+/**
+ * Cambridge 英英ページ HTML から見出し語の定義を品詞ごとに取り出す。
+ * 品詞の判定は extractCambridgePartsOfSpeech と同じく、pos-header の品詞の前に
+ * 見出し語（class="hw"）があるものだけ（派生語 runon の定義は除く）。
+ * 成句（phrase-block。then and there など）の定義も除く: 語義（dsense）の始まりより後に
+ * 成句が始まっていれば、その定義は成句のもの。
+ */
+export function extractCambridgeDefinitions(html: string): DefinitionGroup[] {
+  if (!html) return [];
+  const groups: DefinitionGroup[] = [];
+  for (const m of html.matchAll(/<div\s+class="def\s+ddef_d[^"]*"[^>]*>/gi)) {
+    const header = html.lastIndexOf('pos-header', m.index);
+    if (header < 0) continue;
+    if (html.lastIndexOf('phrase-block', m.index) > html.lastIndexOf('dsense', m.index)) continue;
+    const pos = headwordPos(html.slice(header, m.index));
+    if (!pos) continue;
+    const start = m.index + m[0].length;
+    const end = html.indexOf('</div>', start);
+    if (end < 0) continue;
+    const text = cleanDefinition(html.slice(start, end));
+    if (!text) continue;
+    let group = groups.find((g) => g.pos === pos);
+    if (!group) {
+      group = { pos, defs: [] };
+      groups.push(group);
+    }
+    if (group.defs.length < MAX_DEFINITIONS_PER_POS && !group.defs.includes(text)) group.defs.push(text);
+  }
+  return groups;
+}
+
+/** pos-header から定義までの範囲で、見出し語の品詞を "adverb, adjective" の形で返す。派生語なら null。 */
+function headwordPos(segment: string): string | null {
+  const spans = [...segment.matchAll(POS_SPAN)];
+  if (spans.length === 0) return null;
+  if (!/class="hw[\s"]/.test(segment.slice(0, spans[0].index))) return null;
+  return unique(spans.map((s) => s[1])).join(', ') || null;
+}
+
+/** 定義の HTML を1行の文にする（タグ・文字参照・余分な空白・末尾のコロンを処理）。 */
+function cleanDefinition(raw: string): string {
+  return decodeEntities(raw.replace(/<[^>]*>/g, ''))
+    .replace(/\s+/g, ' ')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\s+,/g, ',')
+    .trim()
+    .replace(/\s*:$/, '')
+    .trim();
+}
+
+const NAMED_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/** HTML 文字参照（&#39; &#x27; &amp; など）を文字に戻す。知らないものはそのまま残す。 */
+function decodeEntities(s: string): string {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (all, code: string) => {
+    const c = code.toLowerCase();
+    if (c.startsWith('#')) {
+      const n = c.startsWith('#x') ? parseInt(c.slice(2), 16) : parseInt(c.slice(1), 10);
+      return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : all;
+    }
+    return NAMED_ENTITIES[c] ?? all;
+  });
+}
+
 /**
  * Cambridge 英英ページ HTML から US 発音セクションの IPA と mp3 URL を抽出する。
+ * 見出し語の品詞と定義も返す。
  * IPA と音源は同じ US セクション内から取得する。片方しかない場合も取得できた方は返す。
  * 音源 URL が相対パスなら絶対 URL 化する。
  *
@@ -134,14 +221,16 @@ export function extractCambridgeWordInfo(html: string): WordInfo {
   if (!html) return { ipa: null, audioUrl: null };
   try {
     const pos = extractCambridgePartsOfSpeech(html);
+    const definitions = extractCambridgeDefinitions(html);
+    const extras = (info: WordInfo): WordInfo => withDefinitions(withPos(info, pos), definitions);
     const us = extractSpanContents(html, ['us', 'dpron-i']);
-    if (!us) return withPos({ ipa: null, audioUrl: null }, pos);
+    if (!us) return extras({ ipa: null, audioUrl: null });
 
     const ipa = extractSpanContents(us, ['ipa', 'dipa'])?.replace(/<[^>]*>/g, '').trim() || null;
     const src = extractCambridgeMp3Src(us);
     const audioUrl = src ? absolutizeCambridgeUrl(src) : null;
 
-    return withPos({ ipa, audioUrl }, pos);
+    return extras({ ipa, audioUrl });
   } catch {
     return { ipa: null, audioUrl: null };
   }
