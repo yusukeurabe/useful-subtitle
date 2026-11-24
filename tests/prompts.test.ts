@@ -42,6 +42,35 @@ describe('buildExplanationPrompt の辞書の品詞', () => {
   });
 });
 
+describe('buildExplanationPrompt の定義の候補', () => {
+  const candidates = [
+    { n: 1, pos: 'adjective', text: 'in a series of amounts' },
+    { n: 2, pos: 'adjective', text: 'happening gradually, in a series of small amounts' },
+  ];
+
+  it('候補を番号付きで渡し、番号だけを書くよう指示する', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja', undefined, ['adjective'], candidates);
+    expect(system).toContain('[1] (adjective) in a series of amounts');
+    expect(system).toContain('[2] (adjective) happening gradually, in a series of small amounts');
+    expect(system).toMatch(/番号だけを \[番号\] の形で書く/);
+  });
+
+  it('前後の字幕を渡すときも候補を残す', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja', { before: ['b'] }, ['adjective'], candidates);
+    expect(system).toContain('[1] (adjective) in a series of amounts');
+  });
+
+  it('候補が無ければ入れない', () => {
+    expect(buildExplanationPrompt('incremental', 'a', 'ja', undefined, ['adjective'], []).system).not.toContain('Cambridge 辞書の英語の定義の候補');
+    expect(buildExplanationPrompt('incremental', 'a', 'ja').system).not.toContain('Cambridge 辞書の英語の定義の候補');
+  });
+
+  it('フレーズには候補を入れない', () => {
+    const { system } = buildExplanationPrompt('break a leg', 'a', 'ja', undefined, undefined, candidates);
+    expect(system).not.toContain('Cambridge 辞書の英語の定義の候補');
+  });
+});
+
 describe('buildExplanationPrompt', () => {
   it('includes both the selected phrase and the surrounding sentence', () => {
     const { user } = buildExplanationPrompt(

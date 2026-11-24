@@ -1,5 +1,6 @@
 import { isSingleWord } from './dictionary';
 import type { CaptionNeighbors, ExplanationLanguage } from './types';
+import type { NumberedDefinition } from './definitionRefs';
 
 export interface PromptParts {
   system: string;
@@ -60,10 +61,11 @@ export function buildExplanationPrompt(
   language: ExplanationLanguage,
   neighbors?: CaptionNeighbors,
   dictionaryPos?: string[],
+  definitionCandidates?: NumberedDefinition[],
 ): PromptParts {
   const label = LANGUAGE_LABEL[language];
   const prompt = isSingleWord(selection)
-    ? buildWordExplanationPrompt(selection, context, label, dictionaryPos)
+    ? buildWordExplanationPrompt(selection, context, label, dictionaryPos, definitionCandidates)
     : buildPhraseExplanationPrompt(selection, context, label);
   if (!hasNeighbors(neighbors)) return prompt;
   // 文やフレーズが字幕をまたいでいると、対象の字幕だけでは意味を取り違える
@@ -100,11 +102,28 @@ function partOfSpeechRule(dictionaryPos: string[] | undefined): string {
   );
 }
 
+/**
+ * 英語の定義を Cambridge の原文にするため、定義の候補を番号付きで渡し、番号だけを書かせる。
+ * 番号はバックグラウンドで原文に差し替える（resolveDefinitionRefs）。候補が無ければ何も足さない。
+ */
+function definitionCandidatesRule(candidates: NumberedDefinition[] | undefined): string {
+  if (!candidates || candidates.length === 0) return '';
+  return (
+    'Cambridge 辞書の英語の定義の候補:\n' +
+    candidates.map((c) => `[${c.n}] (${c.pos}) ${c.text}`).join('\n') +
+    '\n' +
+    '英語の定義は、その品詞行の日本語訳と同じ意味の候補があれば、定義の文は書かずに番号だけを [番号] の形で書く' +
+    '（例: Adj.: 増分の・追加の | [2]）。品詞の合わない候補は選ばない。' +
+    '合う候補が無いときだけ、自分で英語の定義を書く。\n'
+  );
+}
+
 function buildWordExplanationPrompt(
   selection: string,
   context: string,
   label: string,
   dictionaryPos?: string[],
+  definitionCandidates?: NumberedDefinition[],
 ): PromptParts {
   return {
     system:
@@ -119,6 +138,7 @@ function buildWordExplanationPrompt(
       '品詞コードは次から1つ選ぶ（コードだけを出力し、括弧書きの日本語名は付けない）:\n' +
       '  N[C] N[U] N[C/U] V[I] V[T] V[I/T] Adj. Adv. Pron. Prep. Conj. Det. Int.\n' +
       partOfSpeechRule(dictionaryPos) +
+      definitionCandidatesRule(definitionCandidates) +
       '\n' +
       `【最後に必ず1行】「説明: ${label}で、文脈に沿った意味を簡潔に（2〜4文）」。` +
       '文脈で慣用句・句動詞・スラングとして使われていれば、その意味は説明行で補足する。\n' +
