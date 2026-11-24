@@ -8,7 +8,7 @@ export interface NativeParams {
   maxTokens?: number;
 }
 export interface NativeContext {
-  kind: 'translation' | 'interactive';
+  kind: 'translation' | 'interactive' | 'login';
   tabId?: number;
   /** 設定画面の明示的な接続テストだけ利用制限の再確認を許可する。 */
   retry?: boolean;
@@ -21,6 +21,8 @@ interface Job {
   promise: Promise<string>;
   resolve: (text: string) => void;
   reject: (error: AiError) => void;
+  /** login() の重複呼び出しで同一の Promise を返すために保持する。 */
+  done?: Promise<void>;
 }
 const MESSAGES: Partial<Record<ErrorCode, string>> = {
   AUTH: 'Claude Code で利用する Claude Pro アカウントにログインし直してください。',
@@ -33,6 +35,13 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   UNKNOWN: 'Claude Code の応答を確認できませんでした。モデルの利用可否と接続設定を確認してください。',
 };
 const failure = (code: ErrorCode): AiError => new AiError(code, MESSAGES[code] ?? MESSAGES.UNKNOWN!);
+const LOGIN_FAILED = 'ログインできませんでした。もう一度お試しください。';
+const LOGIN_TIMEOUT_MS = 250_000;
+const REQUEST_TIMEOUT_MS = 55_000;
+const isLogin = (job: Job | undefined): boolean => job?.context.kind === 'login';
+/** ログインは取り消し以外の失敗をすべて「ログインできませんでした」に揃える。 */
+const failureFor = (job: Job, code: ErrorCode): AiError =>
+  isLogin(job) && code !== 'CANCELED' ? new AiError('AUTH', LOGIN_FAILED) : failure(code);
 
 /** タブ単位で重複をまとめる。他タブのキャンセルが共有要求に影響しない。 */
 export function createNativeClient(connect = () => chrome.runtime.connectNative('com.useful_subtitle.claude')) {
@@ -60,19 +69,32 @@ export function createNativeClient(connect = () => chrome.runtime.connectNative(
     port = undefined;
     old?.disconnect();
   };
-  const clearPending = (code: ErrorCode): void => {
-    for (const job of [...interactive, ...translations.values()]) job.reject(failure(code));
-    interactive.length = 0;
+  /** keepLogin: 他の要求の失敗では、待機中のログイン（失敗を直すための依頼）を残す。 */
+  const clearPending = (code: ErrorCode, keepLogin = false): void => {
+    const kept = keepLogin ? interactive.filter(isLogin) : [];
+    for (const job of [...interactive, ...translations.values()]) {
+      if (!kept.includes(job)) job.reject(failureFor(job, code));
+    }
+    interactive.splice(0, interactive.length, ...kept);
     translations.clear();
   };
   const reset = (code: ErrorCode = 'CANCELED'): void => {
     clearTimeout(handover);
     handover = undefined;
-    if (code !== 'CANCELED') coolDown(code);
+    // ログイン中の切断などはログインの失敗として扱い、利用停止（60 秒）は掛けない。
+    if (code !== 'CANCELED' && !isLogin(active)) coolDown(code);
     close();
-    active?.reject(failure(code));
+    if (active) active.reject(failureFor(active, code));
     active = undefined;
     clearPending(code);
+  };
+  /** ログインの時間切れ: 利用停止は掛けず、ポートを閉じて次の依頼へ進む。 */
+  const expireLogin = (): void => {
+    const job = active;
+    close();
+    active = undefined;
+    job?.reject(new AiError('AUTH', LOGIN_FAILED));
+    pump();
   };
   const pump = (): void => {
     if (active) return;
@@ -103,29 +125,35 @@ export function createNativeClient(connect = () => chrome.runtime.connectNative(
           if (!value || typeof value !== 'object' || value.id !== active.id || typeof value.ok !== 'boolean'
             || (value.ok && (typeof value.text !== 'string' || !value.text.trim() || value.text.length > 100_000))
             || (!value.ok && (typeof value.code !== 'string' || !Object.hasOwn(MESSAGES, value.code)))) {
-            reset('UNKNOWN');
+            if (isLogin(active)) expireLogin();
+            else reset('UNKNOWN');
             return;
           }
           clearTimeout(timeout);
           const done = active;
           active = undefined;
           if (value.ok) {
-            if (done.context.retry) cooldownUntil = 0;
+            if (done.context.retry || isLogin(done)) cooldownUntil = 0;
             done.resolve(value.text as string);
           }
+          else if (isLogin(done)) done.reject(new AiError('AUTH', LOGIN_FAILED));
           else {
             const code = value.code as ErrorCode;
             coolDown(code);
-            clearPending(code);
+            clearPending(code, true);
             done.reject(failure(code));
           }
           pump();
         });
       }
-      timeout = setTimeout(() => reset('TIMEOUT'), 55_000);
-      // Enumerate fields: even an extra apiKey on a caller's object never crosses this boundary.
-      const { model, system, user, maxTokens } = job.params;
-      port.postMessage({ id: job.id, model, system, user, ...(maxTokens === undefined ? {} : { maxTokens }) });
+      const login = isLogin(job);
+      timeout = setTimeout(() => (login ? expireLogin() : reset('TIMEOUT')), login ? LOGIN_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+      if (login) port.postMessage({ id: job.id, action: 'login' });
+      else {
+        // Enumerate fields: even an extra apiKey on a caller's object never crosses this boundary.
+        const { model, system, user, maxTokens } = job.params;
+        port.postMessage({ id: job.id, model, system, user, ...(maxTokens === undefined ? {} : { maxTokens }) });
+      }
     } catch {
       reset('NATIVE_SETUP');
     }
@@ -173,5 +201,18 @@ export function createNativeClient(connect = () => chrome.runtime.connectNative(
       pump();
     }
   };
-  return { request, reset, dropTab, retireTranslation };
+  /** Claude へのログインを依頼する。待機中の作業より先に実行し、重複呼び出しは同じ Promise を返す。 */
+  const login = (): Promise<void> => {
+    const existing = [active, ...interactive].find(isLogin);
+    if (existing?.done) return existing.done;
+    let resolve!: Job['resolve'];
+    let reject!: Job['reject'];
+    const promise = new Promise<string>((yes, no) => { resolve = yes; reject = no; });
+    const done = promise.then(() => undefined);
+    const job: Job = { id: String(++sequence), key: 'login', params: { model: '', system: '', user: '' }, context: { kind: 'login' }, promise, resolve, reject, done };
+    interactive.unshift(job);
+    pump();
+    return done;
+  };
+  return { request, reset, dropTab, retireTranslation, login };
 }

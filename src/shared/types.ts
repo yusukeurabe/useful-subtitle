@@ -53,6 +53,10 @@ export interface ExplainSentenceRequest extends CaptionNeighbors {
 export interface PingRequest {
   type: 'ping';
 }
+/** 解説ポップアップの「ブラウザでログイン」。Claude サブスク接続の再ログインを起動する。 */
+export interface LoginRequest {
+  type: 'login';
+}
 export interface LookupWordRequest {
   type: 'lookupWord';
   text: string;
@@ -67,7 +71,8 @@ export type RequestMessage =
   | ExplainSentenceRequest
   | PingRequest
   | LookupWordRequest
-  | PlayAudioRequest;
+  | PlayAudioRequest
+  | LoginRequest;
 
 /** service worker → content script のレスポンス。 */
 export type ErrorCode =

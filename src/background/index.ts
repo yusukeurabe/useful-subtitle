@@ -41,6 +41,7 @@ const deps: HandlerDeps = {
   callSubscription: native.request,
   getWordInfo,
   playOffscreenAudio,
+  loginSubscription: native.login,
 };
 
 const boundary = createRequestBoundary(deps, native);

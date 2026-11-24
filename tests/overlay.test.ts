@@ -1029,3 +1029,36 @@ describe('createOverlay — 読み込み中のスケルトン（結果と同じ�
     expect(shadow().querySelector('.popup .sentence .s-trans')!.textContent).toBe('こんにちは世界');
   });
 });
+
+describe('createOverlay — エラー時の操作ボタン', () => {
+  let overlay: Overlay | null = null;
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.openPopup(new DOMRect(10, 10, 10, 10), 'word');
+  });
+  afterEach(() => { overlay?.destroy(); overlay = null; });
+  it('上段のエラーにボタンを出し、押すと onClick を呼ぶ', () => {
+    let clicked = 0;
+    overlay!.setPopupError('ログインし直してください', { label: 'ブラウザでログイン', onClick: () => { clicked++; } });
+    const btn = shadow().querySelector<HTMLButtonElement>('.body .popup-action')!;
+    expect(btn.textContent).toBe('ブラウザでログイン');
+    expect(btn.disabled).toBe(false);
+    btn.click();
+    expect(clicked).toBe(1);
+    expect(shadow().querySelector('.body')!.textContent).toContain('ログインし直してください');
+  });
+  it('onClick が無いボタンは押せない', () => {
+    overlay!.setPopupError('x', { label: '待機中' });
+    expect(shadow().querySelector<HTMLButtonElement>('.body .popup-action')!.disabled).toBe(true);
+  });
+  it('ボタン無しのエラーにはボタンを出さない', () => {
+    overlay!.setPopupError('x');
+    expect(shadow().querySelector('.popup-action')).toBeNull();
+  });
+  it('下段のエラーにもボタンを出せる', () => {
+    overlay!.setPopupSentence({ ok: false, error: 'ログインし直してください', action: { label: 'ブラウザでログイン', onClick: () => {} } });
+    expect(shadow().querySelector('.sentence .popup-action')!.textContent).toBe('ブラウザでログイン');
+  });
+});

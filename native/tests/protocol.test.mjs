@@ -25,3 +25,12 @@ test('validates request limits before spawning', () => {
     assert.throws(() => validateRequest({ ...request, ...change }));
   }
 });
+test('accepts only the exact login action shape', () => {
+  const login = { id: '1', action: 'login' };
+  assert.equal(validateRequest(login), login);
+  for (const bad of [{ id: '1', action: 'logout' }, { id: '1', action: 'login', model: 'x' }, { action: 'login' }, { id: '1', action: 'login', extra: true }]) {
+    assert.throws(() => validateRequest(bad));
+  }
+  const request = { id: '1', model: 'claude-haiku-5-5', system: 'Translate', user: 'Hello' };
+  assert.throws(() => validateRequest({ ...request, action: 'login' }));
+});
