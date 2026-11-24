@@ -26,6 +26,8 @@ export interface HandlerDeps {
   getWordInfo: (word: string) => Promise<WordInfo>;
   /** 音源URLを offscreen で再生する。 */
   playOffscreenAudio: (url: string) => Promise<void>;
+  /** Claude サブスク接続の再ログイン（公式 CLI の auth login）。 */
+  loginSubscription: () => Promise<void>;
 }
 
 /**
@@ -70,6 +72,13 @@ export async function handleRequest(
     }
     if (settings.provider !== 'anthropic' && settings.provider !== 'claude-subscription') {
       throw new AiError('UNKNOWN', '設定画面で接続方式を選択してください。');
+    }
+    if (req.type === 'login') {
+      if (settings.provider !== 'claude-subscription') {
+        throw new AiError('UNKNOWN', 'ログインは Claude サブスク接続のときだけ使えます。');
+      }
+      await deps.loginSubscription();
+      return { ok: true, text: 'OK' };
     }
     if (settings.provider === 'anthropic' && !settings.apiKey) {
       return {

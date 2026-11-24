@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { runClaude, isolatedEnv } from '../claude.mjs';
+import { runClaude, runLogin, isolatedEnv, LOGIN_TIMEOUT_MS } from '../claude.mjs';
 
 const request = { id: 'test', model: 'claude-haiku-5-5', system: 'Translate $(touch bad)', user: '`rm x`; $HOME' };
 const auth = { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' };
@@ -133,4 +133,97 @@ test('configured Node directory is first on child PATH even with minimal browser
   const fake = fakeSpawn([auth, success]);
   await runClaude(request, { ...options, nodePath: '/configured/bin/node', env: { HOME: root, PATH: '/usr/bin:/bin' }, spawn: fake.spawn });
   assert.equal(fake.calls[0].options.env.PATH, ['/configured/bin', '/usr/bin:/bin'].join(delimiter));
+});
+const login = { id: 'login', action: 'login' };
+test('login runs the official subscription login with isolation, then verifies status', async () => {
+  const fake = fakeSpawn(['Opening browser to sign in…\nLogin successful.', { ...auth, subscriptionType: 'pro' }]);
+  const result = await runLogin(login, { ...options, spawn: fake.spawn });
+  assert.deepEqual(result, { id: 'login', ok: true, text: 'OK' });
+  const [call, check] = fake.calls;
+  assert.deepEqual(call.args.slice(-3), ['auth', 'login', '--claudeai']);
+  assert.ok(call.args.includes('--safe-mode'));
+  assert.ok(!call.args.includes('--console'));
+  assert.equal(call.options.shell, false);
+  assert.equal(call.input, '');
+  assert.equal(call.options.env.ANTHROPIC_API_KEY, undefined);
+  assert.deepEqual(check.args.slice(-3), ['auth', 'status', '--json']);
+});
+test('login reports AUTH when status is not a subscription afterwards', async () => {
+  for (const status of [{ ...auth, loggedIn: false }, { ...auth, authMethod: 'api_key' }, 'not-json']) {
+    const fake = fakeSpawn(['Login successful.', status]);
+    assert.equal((await runLogin(login, { ...options, spawn: fake.spawn })).code, 'AUTH');
+  }
+});
+test('login failure exit code is AUTH and skips status', async () => {
+  const calls = [];
+  const spawn = (file, args, opts) => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => true; calls.push(args);
+    queueMicrotask(() => { child.stdout.end(''); child.emit('close', 1); });
+    return child;
+  };
+  assert.equal((await runLogin(login, { ...options, spawn })).code, 'AUTH');
+  assert.equal(calls.length, 1);
+});
+test('login times out and kills the child', async () => {
+  const fake = fakeSpawn([null]);
+  assert.equal((await runLogin(login, { ...options, spawn: fake.spawn, timeoutMs: 10 })).code, 'NETWORK');
+  assert.equal(fake.calls[0].child.killedWith, 'SIGTERM');
+});
+test('login refuses managed policy and malformed requests before spawning', async () => {
+  const fake = fakeSpawn([]);
+  assert.equal((await runLogin(login, { ...options, spawn: fake.spawn, policyExists: () => true })).code, 'NATIVE_SETUP');
+  assert.equal((await runLogin({ id: 'x', action: 'nope' }, { ...options, spawn: fake.spawn })).code, 'UNKNOWN');
+  assert.equal(fake.calls.length, 0);
+});
+/** 呼び出しごとに、指定ミリ秒後に出力して終了する（null なら終了しない）偽の spawn。 */
+function delayedSpawn(steps) {
+  const calls = [];
+  const spawn = (file, args) => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = (signal) => { child.killedWith = signal; queueMicrotask(() => child.emit('close', null, signal)); return true; };
+    calls.push({ args, child });
+    const step = steps.shift();
+    if (step.after !== null) setTimeout(() => { child.stdout.end(JSON.stringify(step.output)); child.emit('close', 0); }, step.after);
+    return child;
+  };
+  return { spawn, calls };
+}
+test('login 後の auth status はログインの残り時間と別に 15 秒の持ち時間で確かめる', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  // ログインが持ち時間 1000ms のうち 990ms を使い切っても、status は 15 秒まで待つ。
+  const fake = delayedSpawn([{ after: 990, output: 'Login successful.' }, { after: null }]);
+  const result = runLogin(login, { ...options, spawn: fake.spawn, timeoutMs: 1000 });
+  t.mock.timers.tick(990);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fake.calls.length, 2);
+  t.mock.timers.tick(14_999);
+  assert.equal(fake.calls[1].child.killedWith, undefined);
+  t.mock.timers.tick(1);
+  assert.equal(fake.calls[1].child.killedWith, 'SIGTERM');
+  t.mock.timers.tick(500);
+  assert.equal((await result).code, 'NETWORK');
+});
+test('login 直前に許可されても status 確認は成功する（ログインの締め切りを共有しない）', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const fake = delayedSpawn([{ after: 990, output: 'Login successful.' }, { after: 100, output: { ...auth, subscriptionType: 'max' } }]);
+  const result = runLogin(login, { ...options, spawn: fake.spawn, timeoutMs: 1000 });
+  t.mock.timers.tick(990);
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(100);
+  assert.deepEqual(await result, { id: 'login', ok: true, text: 'OK' });
+});
+test('timeoutMs を渡さないログインは LOGIN_TIMEOUT_MS（225 秒）で打ち切る', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  assert.equal(LOGIN_TIMEOUT_MS, 225000);
+  const fake = delayedSpawn([{ after: null }]);
+  const result = runLogin(login, { ...options, spawn: fake.spawn });
+  t.mock.timers.tick(224_999);
+  assert.equal(fake.calls[0].child.killedWith, undefined);
+  t.mock.timers.tick(1);
+  assert.equal(fake.calls[0].child.killedWith, 'SIGTERM');
+  t.mock.timers.tick(500);
+  assert.equal((await result).code, 'NETWORK');
 });

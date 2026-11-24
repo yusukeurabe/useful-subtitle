@@ -36,10 +36,16 @@ export interface OverlayOptions {
   onBottomChange: (percent: number) => void;
 }
 
+/** ポップアップのエラー表示に添える操作ボタン。onClick が無い間は押せない（処理中の表示）。 */
+export interface PopupAction {
+  label: string;
+  onClick?: () => void;
+}
+
 /** ポップアップ下段に出す「いま表示中の字幕一文」の意味。null＝取得中。 */
 export type PopupSentenceMeaning =
   | { ok: true; translation: string; explanation: string }
-  | { ok: false; error: string }
+  | { ok: false; error: string; action?: PopupAction }
   | null;
 
 export type TranslationState =
@@ -54,7 +60,7 @@ export interface Overlay {
   openPopup(anchor: DOMRect, selection: string): number;
   isPopupCurrent(token: number): boolean;
   setPopupMeaning(explanation: string, senses: WordSense[]): void;
-  setPopupError(message: string): void;
+  setPopupError(message: string, action?: PopupAction): void;
   setPopupWordInfo(ipa: string | null, audioUrl: string | null): void;
   /** ポップアップ下段（字幕一文の和訳＋解説）を描画する。呼ぶまでは下段を出さない。 */
   setPopupSentence(meaning: PopupSentenceMeaning): void;
@@ -125,6 +131,9 @@ const STYLES = `
 .popup .body { white-space: pre-wrap; }
 .popup .body.loading { opacity: 0.7; }
 .popup .body.err { color: #ff8a8a; }
+.popup .popup-action { margin-top: 8px; padding: 4px 10px; border: 1px solid #8ab4ff; border-radius: 6px; background: transparent; color: #cfe0ff; font: inherit; font-size: 13px; cursor: pointer; }
+.popup .popup-action:hover:not(:disabled) { background: rgba(138, 180, 255, 0.15); }
+.popup .popup-action:disabled { opacity: 0.7; cursor: default; }
 /* 読み込み中のスケルトン。1 本の高さ＝その場所に入る文字 1 行ぶん（font-size×line-height）にして、
    結果が届いて文字に置き換わっても背の高さがほぼ変わらないようにする。 */
 .popup .senses .skeleton { grid-column: 1 / -1; display: grid; row-gap: 2px; font-size: 13px; }
@@ -241,6 +250,18 @@ const STYLES = `
 interface WordRef {
   el: HTMLSpanElement;
   text: string;
+}
+
+function createPopupActionButton(action: PopupAction): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'popup-action';
+  btn.textContent = action.label;
+  btn.disabled = !action.onClick;
+  // 字幕側の選択・ドラッグ処理に拾われないよう、押下でフォーカス移動もさせない。
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
+  if (action.onClick) btn.addEventListener('click', action.onClick);
+  return btn;
 }
 
 export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptions): Overlay {
@@ -771,10 +792,14 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     if (popupAnchor) positionPopup(popupAnchor);
   }
 
-  function setPopupError(message: string): void {
+  function setPopupError(message: string, action?: PopupAction): void {
     if (!popupBody) return;
     popupBody.className = 'body err';
     popupBody.textContent = message;
+    if (action) {
+      popupBody.appendChild(document.createElement('br'));
+      popupBody.appendChild(createPopupActionButton(action));
+    }
     // 品詞の訳は届かないので、読み込み中のスケルトンを消す（高さは popupLockedHeight で保たれる）。
     if (popupSenses) {
       popupSenses.replaceChildren();
@@ -818,6 +843,10 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
       const err = document.createElement('div');
       err.className = 'body err';
       err.textContent = meaning.error;
+      if (meaning.action) {
+        err.appendChild(document.createElement('br'));
+        err.appendChild(createPopupActionButton(meaning.action));
+      }
       sec.appendChild(err);
     } else {
       if (meaning.translation) {

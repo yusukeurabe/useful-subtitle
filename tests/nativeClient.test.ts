@@ -112,6 +112,87 @@ describe('native scheduler', () => {
     vi.advanceTimersByTime(60_000);
     const next = h.send('allowed'); h.finish(); await next;
   });
+  it('login sends only the login action, runs before queued work and lifts the cooldown', async () => {
+    const h = harness();
+    const failed = h.send('first', 1, 'interactive');
+    h.ports[0]!.reply({ id: h.ports[0]!.postMessage.mock.lastCall![0].id, ok: false, code: 'AUTH' });
+    await expect(failed).rejects.toMatchObject({ code: 'AUTH' });
+    await expect(h.send('blocked', 1, 'interactive')).rejects.toMatchObject({ code: 'AUTH' });
+    const login = h.client.login();
+    expect(h.client.login()).toBe(login);
+    const sent = h.ports[0]!.postMessage.mock.lastCall![0];
+    expect(sent).toEqual({ id: expect.any(String), action: 'login' });
+    h.ports[0]!.reply({ id: sent.id, ok: true, text: 'OK' });
+    await expect(login).resolves.toBeUndefined();
+    const after = h.send('after', 1, 'interactive');
+    expect(h.ports.at(-1)!.postMessage.mock.lastCall![0].user).toBe('after');
+    h.finish(); await after;
+  });
+  it('login failure uses the login message and does not start a cooldown', async () => {
+    const h = harness();
+    const login = h.client.login();
+    const sent = h.ports[0]!.postMessage.mock.lastCall![0];
+    h.ports[0]!.reply({ id: sent.id, ok: false, code: 'NETWORK' });
+    await expect(login).rejects.toMatchObject({ code: 'AUTH', message: 'ログインできませんでした。もう一度お試しください。' });
+    const next = h.send('next', 1, 'interactive');
+    h.finish(); await expect(next).resolves.toBe('ok');
+  });
+  it('login waits for the active request and times out after 250 seconds without cooldown', async () => {
+    const h = harness();
+    const active = h.send('active', 1, 'interactive');
+    const login = h.client.login();
+    void login.catch(() => {});
+    expect(h.ports[0]!.postMessage).toHaveBeenCalledTimes(1);
+    h.finish(); await active;
+    expect(h.ports[0]!.postMessage.mock.lastCall![0]).toMatchObject({ action: 'login' });
+    vi.advanceTimersByTime(60_000);
+    expect(h.ports[0]!.disconnect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(190_000);
+    await expect(login).rejects.toMatchObject({ code: 'AUTH' });
+    expect(h.ports[0]!.disconnect).toHaveBeenCalled();
+    vi.advanceTimersByTime(750);
+    const next = h.send('next', 1, 'interactive');
+    h.finish(); await expect(next).resolves.toBe('ok');
+  });
+  it('login is not canceled when its tab closes', async () => {
+    const h = harness();
+    const login = h.client.login();
+    h.client.dropTab(1);
+    const sent = h.ports[0]!.postMessage.mock.lastCall![0];
+    h.ports[0]!.reply({ id: sent.id, ok: true, text: 'OK' });
+    await expect(login).resolves.toBeUndefined();
+  });
+  it('a queued login survives the active request failing with AUTH', async () => {
+    const h = harness();
+    const active = h.send('active', 1, 'interactive');
+    const queued = h.send('queued', 2, 'interactive');
+    const login = h.client.login();
+    h.ports[0]!.reply({ id: h.ports[0]!.postMessage.mock.lastCall![0].id, ok: false, code: 'AUTH' });
+    await expect(active).rejects.toMatchObject({ code: 'AUTH' });
+    await expect(queued).rejects.toMatchObject({ code: 'AUTH' });
+    const sent = h.ports[0]!.postMessage.mock.lastCall![0];
+    expect(sent).toEqual({ id: expect.any(String), action: 'login' });
+    h.ports[0]!.reply({ id: sent.id, ok: true, text: 'OK' });
+    await expect(login).resolves.toBeUndefined();
+  });
+  it('login 実行中に接続プログラムが切れても利用停止を掛けない（ログインの失敗として扱う）', async () => {
+    const h = harness();
+    const login = h.client.login();
+    void login.catch(() => {});
+    expect(h.ports[0]!.postMessage.mock.lastCall![0]).toMatchObject({ action: 'login' });
+    h.ports[0]!.lost();
+    await expect(login).rejects.toMatchObject({ code: 'AUTH', message: 'ログインできませんでした。もう一度お試しください。' });
+    const next = h.send('next', 1, 'interactive');
+    vi.advanceTimersByTime(750);
+    expect(h.ports.at(-1)!.postMessage.mock.lastCall![0].user).toBe('next');
+    h.finish(); await expect(next).resolves.toBe('ok');
+  });
+  it('reset cancels a pending login with CANCELED', async () => {
+    const h = harness();
+    const login = h.client.login();
+    h.client.reset();
+    await expect(login).rejects.toMatchObject({ code: 'CANCELED' });
+  });
 });
 
 it.each(['AUTH', 'NATIVE_SETUP', 'NETWORK', 'UNKNOWN'])('prevents caption retry spam after %s and allows an explicit test', async code => {

@@ -2,11 +2,11 @@ import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FrameDecoder, encodeFrame, validateRequest } from './protocol.mjs';
-import { runClaude, failure } from './claude.mjs';
+import { runClaude, runLogin, failure } from './claude.mjs';
 import { acquireLock } from './lock.mjs';
 import { assertNoSymlinks, ensureDirectory } from './files.mjs';
 
-export function createHost({ input, output, config, run = runClaude, idleMs = 60000, onExit = () => {} }) {
+export function createHost({ input, output, config, run = runClaude, login = runLogin, idleMs = 60000, onExit = () => {} }) {
   let active, closed = false, idle;
   const send = value => { if (!closed) output.write(encodeFrame(value)); };
   const resetIdle = () => { clearTimeout(idle); idle = setTimeout(() => { void close(); }, idleMs); };
@@ -34,7 +34,8 @@ export function createHost({ input, output, config, run = runClaude, idleMs = 60
       try {
         ensureDirectory(join(config.appDir, 'requests'));
         cwd = mkdtempSync(join(config.appDir, 'requests', 'request-'));
-        send(await run(request, { claudePath: config.claudePath, nodePath: config.nodePath, cwd, signal: controller.signal, beforeSpawn: release.beforeSpawn, onSpawn: release.trackChild }));
+        const handler = request.action === 'login' ? login : run;
+        send(await handler(request, { claudePath: config.claudePath, nodePath: config.nodePath, cwd, signal: controller.signal, beforeSpawn: release.beforeSpawn, onSpawn: release.trackChild }));
       } catch { send(failure(id, 'NATIVE_SETUP')); }
       finally {
         if (cwd) rmSync(cwd, { recursive: true, force: true });

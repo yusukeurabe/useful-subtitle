@@ -95,3 +95,18 @@ test('atomic spawn transitions protect auth-to-inference crash window', t => {
   claim.trackChild(999999997);
   const recovered = acquireLock(dir); assert.ok(recovered); recovered();
 });
+test('login requests go to the login runner with the same lock and options', async t => {
+  const appDir = temporary(t), io = streams();
+  const run = async () => { throw new Error('must not run inference'); };
+  const login = async (value, options) => {
+    assert.equal(options.claudePath, '/fake/claude');
+    assert.equal(typeof options.onSpawn, 'function');
+    return { id: value.id, ok: true, text: 'OK' };
+  };
+  const host = createHost({ ...io, config: { appDir, claudePath: '/fake/claude', nodePath: '/configured/node' }, run, login });
+  t.after(() => host.close());
+  io.input.write(encodeFrame({ id: 'l1', action: 'login' }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(io.messages.at(-1), { id: 'l1', ok: true, text: 'OK' });
+  assert.deepEqual(readdirSync(join(appDir, 'locks')), []);
+});

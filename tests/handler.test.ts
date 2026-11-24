@@ -12,6 +12,7 @@ function deps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
     callSubscription: async () => 'NATIVE',
     getWordInfo: async () => ({ ipa: null, audioUrl: null }),
     playOffscreenAudio: async () => {},
+    loginSubscription: async () => {},
     ...overrides,
   };
 }
