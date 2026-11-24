@@ -59,10 +59,11 @@ export function buildExplanationPrompt(
   context: string,
   language: ExplanationLanguage,
   neighbors?: CaptionNeighbors,
+  dictionaryPos?: string[],
 ): PromptParts {
   const label = LANGUAGE_LABEL[language];
   const prompt = isSingleWord(selection)
-    ? buildWordExplanationPrompt(selection, context, label)
+    ? buildWordExplanationPrompt(selection, context, label, dictionaryPos)
     : buildPhraseExplanationPrompt(selection, context, label);
   if (!hasNeighbors(neighbors)) return prompt;
   // 文やフレーズが字幕をまたいでいると、対象の字幕だけでは意味を取り違える
@@ -82,10 +83,28 @@ export function buildExplanationPrompt(
   };
 }
 
+/**
+ * 品詞は辞書に載っているものだけにさせる。AI は文脈に引っ張られ、"$30 trillion a year
+ * incremental" の incremental（辞書では形容詞のみ）を名詞 N[C/U] として返した。
+ * 辞書の品詞が取れたときはそれを渡し、取れないときも文脈から品詞を作らないよう指示する。
+ */
+function partOfSpeechRule(dictionaryPos: string[] | undefined): string {
+  const base =
+    '品詞は英英辞典に見出し語として載っている品詞だけにする。' +
+    '文脈で別の品詞のように使われていても、辞書に無い品詞の行は作らず、その使われ方は説明行で補足する。\n';
+  if (!dictionaryPos || dictionaryPos.length === 0) return base;
+  return (
+    base +
+    `辞書に載っている品詞: ${dictionaryPos.join(', ')}\n` +
+    'この品詞だけで品詞行を書き（それぞれ対応する品詞コードにする）、これ以外の品詞の行は出さない。\n'
+  );
+}
+
 function buildWordExplanationPrompt(
   selection: string,
   context: string,
   label: string,
+  dictionaryPos?: string[],
 ): PromptParts {
   return {
     system:
@@ -99,6 +118,7 @@ function buildWordExplanationPrompt(
       ENGLISH_DEFINITION_RULE +
       '品詞コードは次から1つ選ぶ（コードだけを出力し、括弧書きの日本語名は付けない）:\n' +
       '  N[C] N[U] N[C/U] V[I] V[T] V[I/T] Adj. Adv. Pron. Prep. Conj. Det. Int.\n' +
+      partOfSpeechRule(dictionaryPos) +
       '\n' +
       `【最後に必ず1行】「説明: ${label}で、文脈に沿った意味を簡潔に（2〜4文）」。` +
       '文脈で慣用句・句動詞・スラングとして使われていれば、その意味は説明行で補足する。\n' +

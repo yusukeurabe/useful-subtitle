@@ -5,6 +5,7 @@ import {
   cambridgeUrl,
   extractWordInfo,
   extractCambridgeWordInfo,
+  extractCambridgePartsOfSpeech,
   formatIpaForDisplay,
 } from '../src/shared/dictionary';
 
@@ -267,5 +268,49 @@ describe('formatIpaForDisplay', () => {
     expect(formatIpaForDisplay('')).toBe('');
     expect(formatIpaForDisplay('   ')).toBe('');
     expect(formatIpaForDisplay('//')).toBe('');
+  });
+});
+
+// Cambridge 実ページ（incremental）の構造を縮めたもの。見出し語の品詞は hw の後、
+// 派生語（incrementally）の品詞は hw の無い pos-header の中にある。
+const CAMBRIDGE_INCREMENTAL = `
+<div class="pos-header dpos-h"><div class="di-title"><span class="headword hdb tw-bw dhw dpos-h_hw "><span class="hw dhw">incremental</span></span></div><div class="posgram dpos-g hdib lmr-5"><span class="pos dpos" title="A word that describes a noun or pronoun.">adjective</span></div></div>
+<div class="pos-header dpos-h"><div class="di-title"><span class="headword hdb tw-bw dhw dpos-h_hw "><span class="hw dhw">incremental</span></span></div><div class="posgram dpos-g hdib lmr-5"><span class="pos dpos" title="A word that describes a noun or pronoun.">adjective</span></div></div>
+<span class="runon-head"><span class="w dw">incrementally</span></span><div class="pos-header dpos-h"><span class="pos dpos" title="A word that describes or gives more information about a verb.">adverb</span></div>`;
+const CAMBRIDGE_FAST = `
+<div class="pos-header dpos-h"><span class="hw dhw">fast</span><div class="posgram"><span class="pos dpos">adjective</span></div></div>
+<div class="pos-header dpos-h"><span class="hw dhw">fast</span><div class="posgram"><span class="pos dpos">adverb</span>, <span class="pos dpos">adjective</span></div></div>
+<div class="pos-header dpos-h"><span class="hw dhw">fast</span><div class="posgram"><span class="pos dpos">verb</span></div></div>`;
+
+describe('extractCambridgePartsOfSpeech', () => {
+  it('見出し語の品詞だけを重複なく返し、派生語（runon）の品詞は含めない', () => {
+    expect(extractCambridgePartsOfSpeech(CAMBRIDGE_INCREMENTAL)).toEqual(['adjective']);
+  });
+
+  it('複数の品詞を出てきた順に返す（1つの見出しに2つの品詞があっても拾う）', () => {
+    expect(extractCambridgePartsOfSpeech(CAMBRIDGE_FAST)).toEqual(['adjective', 'adverb', 'verb']);
+  });
+
+  it('品詞が無い・空の HTML では空配列', () => {
+    expect(extractCambridgePartsOfSpeech('')).toEqual([]);
+    expect(extractCambridgePartsOfSpeech('<html>no entry</html>')).toEqual([]);
+  });
+
+  it('extractCambridgeWordInfo は US 発音が無くても品詞を返す', () => {
+    expect(extractCambridgeWordInfo(CAMBRIDGE_INCREMENTAL)).toEqual({
+      ipa: null,
+      audioUrl: null,
+      pos: ['adjective'],
+    });
+  });
+});
+
+describe('extractWordInfo の品詞', () => {
+  it('dictionaryapi.dev の meanings[].partOfSpeech を重複なく返す', () => {
+    const json = [
+      { meanings: [{ partOfSpeech: 'adjective' }, { partOfSpeech: 'noun' }] },
+      { meanings: [{ partOfSpeech: 'adjective' }] },
+    ];
+    expect(extractWordInfo(json).pos).toEqual(['adjective', 'noun']);
   });
 });
