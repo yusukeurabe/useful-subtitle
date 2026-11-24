@@ -356,6 +356,19 @@ describe('extractCambridgeDefinitions', () => {
     expect(groups[0].defs).toEqual(['sense 0', 'sense 1', 'sense 2', 'sense 3', 'sense 4', 'sense 5', 'sense 6', 'sense 7']);
   });
 
+  it('前の見出し語の成句で、語義（dsense）に包まれていない後の見出し語の定義を除かない', () => {
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">noun</span></div>' +
+      '<div class="pr dsense "><div class="def ddef_d db">an act of running: </div>' +
+      '<div class="pr phrase-block dphrase-block"><div class="def ddef_d db">a phrase definition: </div></div></div>' +
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>' +
+      '<div class="def ddef_d db">to move your legs fast: </div>';
+    expect(extractCambridgeDefinitions(html)).toEqual([
+      { pos: 'noun', defs: ['an act of running'] },
+      { pos: 'verb', defs: ['to move your legs fast'] },
+    ]);
+  });
+
   it('定義が無い・空の HTML では空配列', () => {
     expect(extractCambridgeDefinitions('')).toEqual([]);
     expect(extractCambridgeDefinitions('<html>no entry</html>')).toEqual([]);

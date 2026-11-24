@@ -148,8 +148,8 @@ const MAX_DEFINITIONS_PER_POS = 8;
  * Cambridge 英英ページ HTML から見出し語の定義を品詞ごとに取り出す。
  * 品詞の判定は extractCambridgePartsOfSpeech と同じく、pos-header の品詞の前に
  * 見出し語（class="hw"）があるものだけ（派生語 runon の定義は除く）。
- * 成句（phrase-block。then and there など）の定義も除く: 語義（dsense）の始まりより後に
- * 成句が始まっていれば、その定義は成句のもの。
+ * 成句（phrase-block。then and there など）の定義も除く: 今の見出し語の pos-header と語義（dsense）の
+ * 始まりの両方より後に成句が始まっていれば、その定義は成句のもの。
  */
 export function extractCambridgeDefinitions(html: string): DefinitionGroup[] {
   if (!html) return [];
@@ -157,7 +157,9 @@ export function extractCambridgeDefinitions(html: string): DefinitionGroup[] {
   for (const m of html.matchAll(/<div\s+class="def\s+ddef_d[^"]*"[^>]*>/gi)) {
     const header = html.lastIndexOf('pos-header', m.index);
     if (header < 0) continue;
-    if (html.lastIndexOf('phrase-block', m.index) > html.lastIndexOf('dsense', m.index)) continue;
+    // 前の見出し語の成句で後の見出し語の定義を除かないよう、今の pos-header より後の成句だけを見る。
+    const ph = html.lastIndexOf('phrase-block', m.index);
+    if (ph > header && ph > html.lastIndexOf('dsense', m.index)) continue;
     const pos = headwordPos(html.slice(header, m.index));
     if (!pos) continue;
     const start = m.index + m[0].length;

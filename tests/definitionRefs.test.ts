@@ -34,6 +34,23 @@ describe('resolveDefinitionRefs', () => {
     expect(resolveDefinitionRefs('N[C]: 増分｜［ 3 ］', candidates)).toBe('N[C]: 増分 | an amount added');
   });
 
+  it('全角数字の番号も受け付ける', () => {
+    expect(resolveDefinitionRefs('N[C]: 増分 | ［３］', candidates)).toBe('N[C]: 増分 | an amount added');
+  });
+
+  it('複数の番号を並べたときは最初の番号を使う', () => {
+    const expected = 'Adj.: 増分の | in a series of amounts';
+    expect(resolveDefinitionRefs('Adj.: 増分の | [1, 3]', candidates)).toBe(expected);
+    expect(resolveDefinitionRefs('Adj.: 増分の | [1,3]', candidates)).toBe(expected);
+    expect(resolveDefinitionRefs('Adj.: 増分の | [1・3]', candidates)).toBe(expected);
+  });
+
+  it('改行が CRLF でも行ごとに置き換える', () => {
+    expect(resolveDefinitionRefs('Adj.: 増分の・追加の | [2]\r\n説明: x', candidates)).toBe(
+      'Adj.: 増分の・追加の | happening gradually, in a series of small amounts\n説明: x',
+    );
+  });
+
   it('番号の後ろに AI が文を書き足していても原文にそろえる', () => {
     expect(resolveDefinitionRefs('Adj.: 増分の | [2] happening gradually', candidates)).toBe(
       'Adj.: 増分の | happening gradually, in a series of small amounts',

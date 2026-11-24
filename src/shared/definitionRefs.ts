@@ -19,8 +19,16 @@ export function numberDefinitions(groups: DefinitionGroup[] | undefined): Number
   return out;
 }
 
-/** 縦棒の後ろが「[番号]」で始まる部分（全角の ｜ ［ ］ も可）。番号の後ろの書き足しも拾う。 */
-const DEFINITION_REF = /\s*[|｜]\s*[[［]\s*(\d+)\s*[\]］](.*)$/;
+/**
+ * 縦棒の後ろが「[番号]」で始まる部分（全角の ｜ ［ ］ ・全角数字も可）。番号の後ろの書き足しも拾う。
+ * [1, 3] や [1・3] のように複数の番号を並べたときは最初の番号を使う。
+ */
+const DEFINITION_REF = /\s*[|｜]\s*[[［]\s*([0-9０-９]+)[^\]］]*[\]］](.*)$/;
+
+/** 全角数字を半角にして数値にする。 */
+function toNumber(digits: string): number {
+  return Number(digits.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0)));
+}
 
 /**
  * AI の応答の「訳 | [番号]」を「訳 | Cambridge の原文」に置き換える。
@@ -30,12 +38,12 @@ const DEFINITION_REF = /\s*[|｜]\s*[[［]\s*(\d+)\s*[\]］](.*)$/;
 export function resolveDefinitionRefs(raw: string, candidates: NumberedDefinition[]): string {
   if (candidates.length === 0) return raw;
   return raw
-    .split('\n')
+    .split(/\r?\n/)
     .map((line) => {
       const m = line.match(DEFINITION_REF);
       if (!m || m.index === undefined) return line;
       const head = line.slice(0, m.index);
-      const found = candidates.find((c) => c.n === Number(m[1]));
+      const found = candidates.find((c) => c.n === toNumber(m[1]));
       if (found) return `${head} | ${found.text}`;
       const rest = m[2].trim();
       return rest ? `${head} | ${rest}` : head;

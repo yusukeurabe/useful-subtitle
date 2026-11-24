@@ -55,9 +55,30 @@ describe('buildExplanationPrompt の定義の候補', () => {
     expect(system).toMatch(/番号だけを \[番号\] の形で書く/);
   });
 
-  it('前後の字幕を渡すときも候補を残す', () => {
+  it('番号は1行に1つだけ・説明行で番号に触れない・合う候補が無ければ平易な英語で20語以内と指示する', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja', undefined, ['adjective'], candidates);
+    expect(system).toContain('番号は1つだけ');
+    expect(system).toContain('説明行では候補の番号に触れない');
+    expect(system).toContain('平易な英語・20語以内');
+    expect(system).not.toContain('増分の・追加の | [2]');
+  });
+
+  it('候補を渡すときは出力例も番号の形にする（定義を書き出す例を見せない）', () => {
+    const { system } = buildExplanationPrompt('incremental', 'a', 'ja', undefined, ['adjective'], candidates);
+    expect(system).toContain('V[I/T]: 走る・運営する | [1]');
+    expect(system).toContain('| [1]');
+    expect(system).not.toContain('to move your legs');
+  });
+
+  it('候補が無ければ出力例は英語の定義を書き出す形のまま', () => {
+    expect(buildExplanationPrompt('incremental', 'a', 'ja', undefined, ['adjective'], []).system).toContain('to move your legs');
+    expect(buildExplanationPrompt('incremental', 'a', 'ja').system).toContain('to move your legs');
+  });
+
+  it('前後の字幕を渡すときも候補と番号の指示を残す', () => {
     const { system } = buildExplanationPrompt('incremental', 'a', 'ja', { before: ['b'] }, ['adjective'], candidates);
     expect(system).toContain('[1] (adjective) in a series of amounts');
+    expect(system).toMatch(/番号だけを \[番号\] の形で書く/);
   });
 
   it('候補が無ければ入れない', () => {

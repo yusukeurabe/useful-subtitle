@@ -141,10 +141,8 @@ export async function handleRequest(
       return { ok: true, text: cached };
     }
 
-    const dictionary =
-      req.type === 'explainSelection' && isSingleWord(req.selection)
-        ? await lookupDictionary(deps, normalizeWord(req.selection))
-        : undefined;
+    const needsDictionary = req.type === 'explainSelection' && isSingleWord(req.selection);
+    const dictionary = needsDictionary ? await lookupDictionary(deps, normalizeWord(req.selection)) : undefined;
     ensureCurrent();
     const candidates = numberDefinitions(dictionary?.definitions);
 
@@ -163,7 +161,12 @@ export async function handleRequest(
     ensureCurrent();
     // AI が選んだ定義の番号を Cambridge の原文に差し替えてから保存する（候補が無ければそのまま）。
     const text = resolveDefinitionRefs(raw, candidates);
-    await deps.setCached(key, text);
+    // 1単語の解説で辞書が時間切れ・失敗（undefined）だったときは保存しない。一時的な遅さで
+    // Cambridge の原文の無い応答が永続キャッシュに残り続けるのを防ぐ。Cambridge に載っていない
+    // 単語は WordInfo が返る（undefined ではない）ので、従来どおり保存する。
+    if (!(needsDictionary && dictionary === undefined)) {
+      await deps.setCached(key, text);
+    }
     ensureCurrent();
     return { ok: true, text };
   } catch (e) {

@@ -113,8 +113,24 @@ function definitionCandidatesRule(candidates: NumberedDefinition[] | undefined):
     candidates.map((c) => `[${c.n}] (${c.pos}) ${c.text}`).join('\n') +
     '\n' +
     '英語の定義は、その品詞行の日本語訳と同じ意味の候補があれば、定義の文は書かずに番号だけを [番号] の形で書く' +
-    '（例: Adj.: 増分の・追加の | [2]）。品詞の合わない候補は選ばない。' +
-    '合う候補が無いときだけ、自分で英語の定義を書く。\n'
+    '（1行に番号は1つだけ。複数の番号を並べない）。品詞の合わない候補は選ばない。' +
+    '合う候補が無いときだけ、上の英語の定義の書き方（平易な英語・20語以内）で自分で英語の定義を書く。' +
+    '説明行では候補の番号に触れない。\n'
+  );
+}
+
+/**
+ * 単語の解説の出力例。候補を渡すときは番号の形の例にする（定義を書き出す例のままだと、
+ * 番号を書けという指示と食い違い、AI が定義を書き出してしまう）。
+ */
+function wordOutputExample(candidates: NumberedDefinition[] | undefined): string {
+  if (candidates && candidates.length > 0) {
+    return 'V[I/T]: 走る・運営する | [1]\n' + 'N[C]: 走り・走ること | [9]\n' + '説明: 文脈ではこう。';
+  }
+  return (
+    'V[I/T]: 走る・運営する | to move your legs faster than when walking\n' +
+    'N[C]: 走り・走ること | an act of running\n' +
+    '説明: 文脈ではこう。'
   );
 }
 
@@ -144,9 +160,7 @@ function buildWordExplanationPrompt(
       '文脈で慣用句・句動詞・スラングとして使われていれば、その意味は説明行で補足する。\n' +
       '\n' +
       '出力例:\n' +
-      'V[I/T]: 走る・運営する | to move your legs faster than when walking\n' +
-      'N[C]: 走り・走ること | an act of running\n' +
-      '説明: 文脈ではこう。',
+      wordOutputExample(definitionCandidates),
     user: `文: "${context}"\nこの文の中の単語 "${selection}" の意味を教えてください。`,
   };
 }
