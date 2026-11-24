@@ -119,4 +119,26 @@ describe('createWordInfoFetcher', () => {
     expect(a).toEqual(b);
     expect(f).toHaveBeenCalledTimes(1);
   });
+
+  it('Cambridge の見出し語の定義を返す（予備APIで補うときも残す）', async () => {
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>' +
+      `<div class="pr dsense "><div class="def ddef_d db">to move fast: </div></div>${CAMBRIDGE_IPA_ONLY}`;
+    const f = fetcher(response(html), response(DICT_API_JSON));
+    const info = await createWordInfoFetcher(f)('run');
+    expect(info.definitions).toEqual([{ pos: 'verb', defs: ['to move fast'] }]);
+    expect(info.audioUrl).toBe('https://api.dictionaryapi.dev/media/pronunciations/en/run-us.mp3');
+  });
+
+  it('品詞と定義が取れた結果は覚えておく', async () => {
+    const html =
+      '<div class="pos-header dpos-h"><span class="hw dhw">run</span><span class="pos dpos">verb</span></div>' +
+      '<div class="pr dsense "><div class="def ddef_d db">to move fast: </div></div>';
+    const f = fetcher(response(html), response([]));
+    const get = createWordInfoFetcher(f);
+    await get('run');
+    const calls = f.mock.calls.length;
+    expect((await get('run')).definitions).toEqual([{ pos: 'verb', defs: ['to move fast'] }]);
+    expect(f).toHaveBeenCalledTimes(calls);
+  });
 });
