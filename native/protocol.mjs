@@ -2,8 +2,15 @@ export const MAX_FRAME_BYTES = 128 * 1024;
 
 export function validateRequest(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
-    || typeof value.id !== 'string' || !value.id.length || value.id.length > 128
-    || typeof value.model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(value.model)
+    || typeof value.id !== 'string' || !value.id.length || value.id.length > 128) {
+    throw new Error('Invalid native request');
+  }
+  if (value.action !== undefined) {
+    // ログイン依頼は id と action だけ。余計な値は受け取らない。
+    if (value.action !== 'login' || Object.keys(value).length !== 2) throw new Error('Invalid native request');
+    return value;
+  }
+  if (typeof value.model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(value.model)
     || typeof value.system !== 'string' || value.system.length > 8192
     || typeof value.user !== 'string' || !value.user.length || value.user.length > 16384
     || (value.maxTokens !== undefined && (!Number.isInteger(value.maxTokens) || value.maxTokens < 1 || value.maxTokens > 4096))) {

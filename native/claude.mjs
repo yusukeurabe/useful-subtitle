@@ -81,21 +81,39 @@ function classify(text) {
   if (/network|connection|timed?.?out|ECONN|ENOTFOUND|EAI_AGAIN|\bDNS\b|(?:can't reach|cannot reach|unreachable).*API server|fetch failed/i.test(text)) return 'NETWORK';
   return 'UNKNOWN';
 }
+export const LOGIN_TIMEOUT_MS = 240000;
+
+/** 依頼の検証・設定の組み立て・管理ポリシー検査を行う。使えない環境なら null を返す。 */
+function prepare(request, options, timeoutMs) {
+  validateRequest(request);
+  const config = { spawn: nodeSpawn, env: process.env, timeoutMs, nodePath: process.execPath, ...options, maxTokens: Math.max(1024, request.maxTokens ?? 1024) };
+  const policyFiles = [...managedFiles];
+  if (config.env.HOME) policyFiles.push(join(config.env.HOME, 'Library/Preferences/com.anthropic.claudecode.plist'), join(config.env.HOME, 'Library/Managed Preferences/com.anthropic.claudecode.plist'));
+  if (config.env.USER && /^[a-zA-Z0-9._-]+$/.test(config.env.USER)) policyFiles.push(`/Library/Managed Preferences/${config.env.USER}/com.anthropic.claudecode.plist`);
+  if (!isAbsolute(config.claudePath ?? '') || !isAbsolute(config.cwd ?? '') || !isAbsolute(config.nodePath ?? '') || policyFiles.some(file => (config.policyExists ?? existsSync)(file))) return null;
+  const deadline = Date.now() + config.timeoutMs;
+  const invoke = (args, input) => execute(config.claudePath, args, input, config, Math.max(1, deadline - Date.now()));
+  return { config, invoke };
+}
+/** 公式 CLI の auth status で、Claude サブスク（Pro/Max）でログイン済みかを確かめる。 */
+async function isSubscribed(invoke) {
+  const auth = await invoke([...isolation, 'auth', 'status', '--json'], '');
+  let status;
+  try { status = JSON.parse(auth.stdout); } catch { return false; }
+  return auth.exitCode === 0 && status.loggedIn === true && status.authMethod === 'claude.ai' && status.apiProvider === 'firstParty'
+    && (status.subscriptionType === undefined || ['pro', 'max'].includes(status.subscriptionType));
+}
+const requestId = request => typeof request?.id === 'string' && request.id.length <= 128 ? request.id : '';
+
 export async function runClaude(request, options = {}) {
-  const id = typeof request?.id === 'string' && request.id.length <= 128 ? request.id : '';
+  const id = requestId(request);
   try {
-    validateRequest(request);
-    const config = { spawn: nodeSpawn, env: process.env, timeoutMs: 45000, nodePath: process.execPath, ...options, maxTokens: Math.max(1024, request.maxTokens ?? 1024) };
-    const policyFiles = [...managedFiles];
-    if (config.env.HOME) policyFiles.push(join(config.env.HOME, 'Library/Preferences/com.anthropic.claudecode.plist'), join(config.env.HOME, 'Library/Managed Preferences/com.anthropic.claudecode.plist'));
-    if (config.env.USER && /^[a-zA-Z0-9._-]+$/.test(config.env.USER)) policyFiles.push(`/Library/Managed Preferences/${config.env.USER}/com.anthropic.claudecode.plist`);
-    if (!isAbsolute(config.claudePath ?? '') || !isAbsolute(config.cwd ?? '') || !isAbsolute(config.nodePath ?? '') || policyFiles.some(file => (config.policyExists ?? existsSync)(file))) return failure(id, 'NATIVE_SETUP');
-    const deadline = Date.now() + config.timeoutMs;
-    const invoke = (args, input) => execute(config.claudePath, args, input, config, Math.max(1, deadline - Date.now()));
-    const auth = await invoke([...isolation, 'auth', 'status', '--json'], '');
-    let status;
-    try { status = JSON.parse(auth.stdout); } catch { return failure(id, 'AUTH'); }
-    if (auth.exitCode !== 0 || status.loggedIn !== true || status.authMethod !== 'claude.ai' || status.apiProvider !== 'firstParty' || (status.subscriptionType !== undefined && !['pro', 'max'].includes(status.subscriptionType))) return failure(id, 'AUTH');
+    const prepared = prepare(request, options, options.timeoutMs ?? 45000);
+    if (!prepared) return failure(id, 'NATIVE_SETUP');
+    // ログインなど action 付きの依頼は推論に進めない。
+    if (request.action !== undefined) return failure(id, 'UNKNOWN');
+    const { invoke } = prepared;
+    if (!(await isSubscribed(invoke))) return failure(id, 'AUTH');
     const response = await invoke(['-p', ...isolation, '--no-session-persistence', '--output-format', 'json', '--max-turns', '1', '--effort', 'low', '--model', request.model, '--system-prompt', request.system], request.user);
     let result;
     try { result = JSON.parse(response.stdout); } catch { return failure(id, classify(response.stderr)); }
@@ -103,5 +121,20 @@ export async function runClaude(request, options = {}) {
       return failure(id, classify(`${response.stderr} ${JSON.stringify(result)}`));
     }
     return { id, ok: true, text: result.result };
+  } catch (error) { return failure(id, MESSAGES[error?.code] ? error.code : 'UNKNOWN'); }
+}
+
+/** 公式 CLI の Claude サブスクログインを起動する。ブラウザが開き、許可されると CLI が自ら終了する。 */
+export async function runLogin(request, options = {}) {
+  const id = requestId(request);
+  try {
+    if (request?.action !== 'login') return failure(id, 'UNKNOWN');
+    const prepared = prepare(request, options, options.timeoutMs ?? LOGIN_TIMEOUT_MS);
+    if (!prepared) return failure(id, 'NATIVE_SETUP');
+    const { invoke } = prepared;
+    const login = await invoke([...isolation, 'auth', 'login', '--claudeai'], '');
+    if (login.exitCode !== 0) return failure(id, 'AUTH');
+    if (!(await isSubscribed(invoke))) return failure(id, 'AUTH');
+    return { id, ok: true, text: 'OK' };
   } catch (error) { return failure(id, MESSAGES[error?.code] ? error.code : 'UNKNOWN'); }
 }

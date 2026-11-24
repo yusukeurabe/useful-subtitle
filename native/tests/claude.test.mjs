@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
-import { runClaude, isolatedEnv } from '../claude.mjs';
+import { runClaude, runLogin, isolatedEnv } from '../claude.mjs';
 
 const request = { id: 'test', model: 'claude-haiku-5-5', system: 'Translate $(touch bad)', user: '`rm x`; $HOME' };
 const auth = { loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty' };
@@ -133,4 +133,47 @@ test('configured Node directory is first on child PATH even with minimal browser
   const fake = fakeSpawn([auth, success]);
   await runClaude(request, { ...options, nodePath: '/configured/bin/node', env: { HOME: root, PATH: '/usr/bin:/bin' }, spawn: fake.spawn });
   assert.equal(fake.calls[0].options.env.PATH, ['/configured/bin', '/usr/bin:/bin'].join(delimiter));
+});
+const login = { id: 'login', action: 'login' };
+test('login runs the official subscription login with isolation, then verifies status', async () => {
+  const fake = fakeSpawn(['Opening browser to sign in…\nLogin successful.', { ...auth, subscriptionType: 'pro' }]);
+  const result = await runLogin(login, { ...options, spawn: fake.spawn });
+  assert.deepEqual(result, { id: 'login', ok: true, text: 'OK' });
+  const [call, check] = fake.calls;
+  assert.deepEqual(call.args.slice(-3), ['auth', 'login', '--claudeai']);
+  assert.ok(call.args.includes('--safe-mode'));
+  assert.ok(!call.args.includes('--console'));
+  assert.equal(call.options.shell, false);
+  assert.equal(call.input, '');
+  assert.equal(call.options.env.ANTHROPIC_API_KEY, undefined);
+  assert.deepEqual(check.args.slice(-3), ['auth', 'status', '--json']);
+});
+test('login reports AUTH when status is not a subscription afterwards', async () => {
+  for (const status of [{ ...auth, loggedIn: false }, { ...auth, authMethod: 'api_key' }, 'not-json']) {
+    const fake = fakeSpawn(['Login successful.', status]);
+    assert.equal((await runLogin(login, { ...options, spawn: fake.spawn })).code, 'AUTH');
+  }
+});
+test('login failure exit code is AUTH and skips status', async () => {
+  const calls = [];
+  const spawn = (file, args, opts) => {
+    const child = new EventEmitter();
+    child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    child.kill = () => true; calls.push(args);
+    queueMicrotask(() => { child.stdout.end(''); child.emit('close', 1); });
+    return child;
+  };
+  assert.equal((await runLogin(login, { ...options, spawn })).code, 'AUTH');
+  assert.equal(calls.length, 1);
+});
+test('login times out and kills the child', async () => {
+  const fake = fakeSpawn([null]);
+  assert.equal((await runLogin(login, { ...options, spawn: fake.spawn, timeoutMs: 10 })).code, 'NETWORK');
+  assert.equal(fake.calls[0].child.killedWith, 'SIGTERM');
+});
+test('login refuses managed policy and malformed requests before spawning', async () => {
+  const fake = fakeSpawn([]);
+  assert.equal((await runLogin(login, { ...options, spawn: fake.spawn, policyExists: () => true })).code, 'NATIVE_SETUP');
+  assert.equal((await runLogin({ id: 'x', action: 'nope' }, { ...options, spawn: fake.spawn })).code, 'UNKNOWN');
+  assert.equal(fake.calls.length, 0);
 });
