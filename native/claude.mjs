@@ -81,7 +81,7 @@ function classify(text) {
   if (/network|connection|timed?.?out|ECONN|ENOTFOUND|EAI_AGAIN|\bDNS\b|(?:can't reach|cannot reach|unreachable).*API server|fetch failed/i.test(text)) return 'NETWORK';
   return 'UNKNOWN';
 }
-export const LOGIN_TIMEOUT_MS = 240000;
+export const LOGIN_TIMEOUT_MS = 225000; // ＋状態確認 15 秒 = 240 秒。拡張側 250 秒より先に終える。
 /** ログイン後の auth status 確認の持ち時間。ログインの締め切りとは別に取る（締め切り間際の許可を失敗扱いにしない）。 */
 const LOGIN_STATUS_TIMEOUT_MS = 15000;
 

@@ -215,12 +215,12 @@ test('login 直前に許可されても status 確認は成功する（ログイ
   t.mock.timers.tick(100);
   assert.deepEqual(await result, { id: 'login', ok: true, text: 'OK' });
 });
-test('timeoutMs を渡さないログインは LOGIN_TIMEOUT_MS（240 秒）で打ち切る', async t => {
+test('timeoutMs を渡さないログインは LOGIN_TIMEOUT_MS（225 秒）で打ち切る', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-  assert.equal(LOGIN_TIMEOUT_MS, 240000);
+  assert.equal(LOGIN_TIMEOUT_MS, 225000);
   const fake = delayedSpawn([{ after: null }]);
   const result = runLogin(login, { ...options, spawn: fake.spawn });
-  t.mock.timers.tick(239_999);
+  t.mock.timers.tick(224_999);
   assert.equal(fake.calls[0].child.killedWith, undefined);
   t.mock.timers.tick(1);
   assert.equal(fake.calls[0].child.killedWith, 'SIGTERM');
