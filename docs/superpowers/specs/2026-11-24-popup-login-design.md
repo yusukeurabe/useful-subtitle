@@ -10,14 +10,14 @@
 1. AUTH エラーのとき、ポップアップ上段（単語の解説）と下段（字幕全文の和訳）のエラー文の下に「ブラウザでログイン」ボタンを出す。
 2. 押すと「ブラウザでログインを完了してください…」を表示し、Claude のログイン画面がブラウザで開く。
 3. ログイン成功後、ポップアップがまだ同じ表示中なら、同じ選択語・字幕で意味引きをやり直す（単語・全文とも）。ポップアップを閉じていたら何もしない。
-4. 失敗・5分経過時は「ログインできませんでした。もう一度お試しください。」とボタンを再表示する。
+4. 失敗・4分経過時は「ログインできませんでした。もう一度お試しください。」とボタンを再表示する。
 5. 接続方式が Claude サブスク以外のときはボタンを出さない（AUTH はサブスク方式でのみ発生）。
 
 ## 構成
 - **native/protocol.mjs**: 依頼の形を2種類に。従来の解説依頼と、`{ id, action: 'login' }` のログイン依頼。それ以外は拒否。
-- **native/claude.mjs**: `runLogin(request, options)` を追加。`claudePath` で `[...isolation, 'auth', 'login', '--claudeai']` を起動（stdin は空で閉じる、環境変数は既存の `isolatedEnv` のみ）。制限時間 5 分。終了後、既存と同じ `auth status --json` 判定（claude.ai／firstParty／pro・max）に通れば `{ id, ok: true, text: 'OK' }`、通らなければ `AUTH`。管理ポリシー・パス検査は `runClaude` と共通化する。
+- **native/claude.mjs**: `runLogin(request, options)` を追加。`claudePath` で `[...isolation, 'auth', 'login', '--claudeai']` を起動（stdin は空で閉じる、環境変数は既存の `isolatedEnv` のみ）。制限時間 4 分（拡張側 250 秒。MV3 service worker の 5 分制限より短くする）。終了後、既存と同じ `auth status --json` 判定（claude.ai／firstParty／pro・max）に通れば `{ id, ok: true, text: 'OK' }`、通らなければ `AUTH`。管理ポリシー・パス検査は `runClaude` と共通化する。
 - **native/host.mjs**: `action === 'login'` なら `runLogin`、それ以外は `runClaude`。ロック・一時ディレクトリ・同時実行禁止は既存と同じ。
-- **src/background/nativeClient.ts**: `login(): Promise<void>` を追加。interactive キューの先頭に入れ、ポートへは `{ id, action: 'login' }` だけを送る。タイムアウトは 5 分 10 秒。成功したら 60 秒の停止（cooldown）を解除。ログインは特定タブに属さないので `dropTab` で取り消されない。ログイン失敗では cooldown を掛けない。同時に 2 回呼ばれたら同じ Promise を返す。
+- **src/background/nativeClient.ts**: `login(): Promise<void>` を追加。interactive キューの先頭に入れ、ポートへは `{ id, action: 'login' }` だけを送る。タイムアウトは 250 秒。成功したら 60 秒の停止（cooldown）を解除。ログインは特定タブに属さないので `dropTab` で取り消されない。ログイン失敗では cooldown を掛けない。同時に 2 回呼ばれたら同じ Promise を返す。
 - **src/shared/types.ts / requestBoundary.ts / handler.ts**: 動画ページの content script から `{ type: 'login' }` を受け付け、設定がサブスク方式なら `native.login()`、それ以外は UNKNOWN エラー。応答は通常の `ResponseMessage`。
 - **src/content/overlay.ts**: `setPopupError(message, action?)` と `setPopupSentence({ ok: false, error, action? })` に任意のボタン `{ label, onClick }` を追加。ボタンは `textContent` で作る。
 - **src/content/interaction.ts**: `code === 'AUTH'` のときにログインボタンを付ける。押下でログイン → 成功したら `isPopupCurrent` を確かめて意味引きをやり直す。
