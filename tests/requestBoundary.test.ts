@@ -9,7 +9,8 @@ function harness(overrides: Partial<HandlerDeps> = {}) {
     getSettings: async () => ({ ...DEFAULT_SETTINGS, provider: 'claude-subscription' }),
     getCached: async () => undefined, setCached: vi.fn(async () => {}),
     callSubscription: vi.fn(async () => 'native'), callAi: vi.fn(async () => 'api'),
-    getWordInfo: vi.fn(async () => ({ ipa: null, audioUrl: null })), playOffscreenAudio: vi.fn(async () => {}), ...overrides,
+    getWordInfo: vi.fn(async () => ({ ipa: null, audioUrl: null })), playOffscreenAudio: vi.fn(async () => {}),
+    loginSubscription: vi.fn(async () => {}), ...overrides,
   };
   const native = { reset: vi.fn(), dropTab: vi.fn(), retireTranslation: vi.fn() };
   return { deps, native, boundary: createRequestBoundary(deps, native) };
@@ -77,5 +78,20 @@ describe('runtime boundary', () => {
     await h.boundary.dispatch({ type: 'translateLine', text: 'new' }, video); resolve(undefined);
     expect(await old).toMatchObject({ code: 'CANCELED' });
     expect(h.deps.callSubscription).toHaveBeenCalledTimes(1);
+  });
+  it('accepts login only from a video page and only for the subscription provider', async () => {
+    expect(isRequest({ type: 'login' })).toBe(true);
+    const h = harness();
+    expect(await h.boundary.dispatch({ type: 'login' }, video)).toEqual({ ok: true, text: 'OK' });
+    expect(h.deps.loginSubscription).toHaveBeenCalledTimes(1);
+    expect(h.boundary.dispatch({ type: 'login' }, { id, url: chrome.runtime.getURL('options.html') })).toBeUndefined();
+    const api = harness({ getSettings: async () => ({ ...DEFAULT_SETTINGS, provider: 'anthropic', apiKey: 'k' }) });
+    expect(await api.boundary.dispatch({ type: 'login' }, video)).toMatchObject({ ok: false, code: 'UNKNOWN' });
+    expect(api.deps.loginSubscription).not.toHaveBeenCalled();
+  });
+  it('returns the login failure as an error response', async () => {
+    const { AiError } = await import('../src/background/aiClient');
+    const h = harness({ loginSubscription: vi.fn(async () => { throw new AiError('AUTH', 'ログインできませんでした。もう一度お試しください。'); }) });
+    expect(await h.boundary.dispatch({ type: 'login' }, video)).toEqual({ ok: false, code: 'AUTH', error: 'ログインできませんでした。もう一度お試しください。' });
   });
 });

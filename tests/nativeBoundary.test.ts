@@ -25,6 +25,7 @@ function harness(overrides: Partial<HandlerDeps> = {}) {
     setCached: vi.fn(async (key, text) => { cached.set(key, text); }),
     callSubscription: vi.fn(native.request), callAi: vi.fn(async () => 'api'),
     getWordInfo: async () => ({ ipa: null, audioUrl: null }), playOffscreenAudio: async () => {},
+    loginSubscription: async () => {},
     ...overrides,
   };
   const boundary = createRequestBoundary(deps, native);

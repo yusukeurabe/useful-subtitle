@@ -22,6 +22,7 @@ export function isRequest(value: unknown): value is RequestMessage {
   const withNeighbors = (): boolean => neighbors('before') && neighbors('after');
   switch (v.type) {
     case 'ping': return true;
+    case 'login': return true;
     case 'translateLine': return text('text');
     case 'explainSentence': return text('text') && withNeighbors();
     case 'explainSelection': return text('selection', 2048) && text('context') && withNeighbors();

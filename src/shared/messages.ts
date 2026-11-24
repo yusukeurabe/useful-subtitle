@@ -5,6 +5,7 @@ import type {
   ExplainSelectionRequest,
   ExplainSentenceRequest,
   PingRequest,
+  LoginRequest,
   LookupWordRequest,
   PlayAudioRequest,
   WordInfoResponse,
@@ -49,7 +50,7 @@ export function normalizeSendError(
 export function sendRequest(req: LookupWordRequest): Promise<WordInfoResponse | ErrorResponse>;
 export function sendRequest(req: PlayAudioRequest): Promise<AudioResponse | ErrorResponse>;
 export function sendRequest(
-  req: TranslateLineRequest | ExplainSelectionRequest | ExplainSentenceRequest | PingRequest,
+  req: TranslateLineRequest | ExplainSelectionRequest | ExplainSentenceRequest | PingRequest | LoginRequest,
 ): Promise<ResponseMessage>;
 export async function sendRequest(
   req: RequestMessage,
