@@ -1,9 +1,39 @@
-import type { Overlay } from './overlay';
-import type { CaptionNeighbors, Settings } from '../shared/types';
+import type { Overlay, PopupAction } from './overlay';
+import type { CaptionNeighbors, ErrorResponse, Settings } from '../shared/types';
 import { pauseVideo } from './videoControl';
 import { sendRequest } from '../shared/messages';
 import { loadWordInfo } from './word';
 import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
+
+const LOGIN_LABEL = 'ブラウザでログイン';
+const LOGIN_WAITING = 'ブラウザでログインを完了してください…';
+
+/**
+ * AUTH エラーのときだけ「ブラウザでログイン」ボタンを作る。押すと公式 CLI のログインを起動し、
+ * 成功してポップアップがまだ同じなら retry（意味引きのやり直し）を呼ぶ。show はボタンを出す場所（上段/下段）。
+ */
+function loginAction(
+  res: ErrorResponse,
+  overlay: Overlay,
+  popupToken: number,
+  show: (message: string, action?: PopupAction) => void,
+  retry: () => void,
+): PopupAction | undefined {
+  if (res.code !== 'AUTH') return undefined;
+  const action: PopupAction = {
+    label: LOGIN_LABEL,
+    onClick: () => {
+      show(res.error, { label: LOGIN_WAITING });
+      void sendRequest({ type: 'login' }).then((login) => {
+        if (!overlay.isPopupCurrent(popupToken)) return;
+        if (login.ok) retry();
+        // ログイン失敗は code が何であっても（CANCELED / UNKNOWN 等）ボタンを出し直す。
+        else show(login.error, loginAction({ ...login, code: 'AUTH' }, overlay, popupToken, show, retry));
+      });
+    },
+  };
+  return action;
+}
 
 /**
  * ポップアップ下段に、いま表示中の字幕一文の和訳＋解説を出す（字幕一覧のホバーと同じ explainSentence）。
@@ -14,6 +44,7 @@ async function loadSentenceMeaning(
   sentence: string,
   neighbors: CaptionNeighbors,
   popupToken: number,
+  retry: () => void,
 ): Promise<void> {
   if (!sentence.trim()) return;
   overlay.setPopupSentence(null);
@@ -23,7 +54,8 @@ async function loadSentenceMeaning(
     const { translation, explanation } = parseSentenceMeaning(res.text);
     overlay.setPopupSentence({ ok: true, translation, explanation });
   } else {
-    overlay.setPopupSentence({ ok: false, error: res.error });
+    const show = (error: string, action?: PopupAction): void => overlay.setPopupSentence({ ok: false, error, action });
+    show(res.error, loginAction(res, overlay, popupToken, show, retry));
   }
 }
 
@@ -47,13 +79,18 @@ export async function runLookup(
   // 発音記号・音源URLの先読み（意味取得と独立・並行）。
   void loadWordInfo(overlay, selection, popupToken);
   const word = sendRequest({ type: 'explainSelection', selection, context: sentence, ...neighbors });
-  void loadSentenceMeaning(overlay, sentence, neighbors, popupToken);
+  // ログイン成功後のやり直し。同じ選択・字幕・前後の字幕で意味引きを最初からかけ直す。
+  const retry = (): void => {
+    void runLookup(overlay, settings, selection, sentence, anchor, neighbors);
+  };
+  void loadSentenceMeaning(overlay, sentence, neighbors, popupToken, retry);
   const res = await word;
   if (!overlay.isPopupCurrent(popupToken)) return;
   if (res.ok) {
     const { senses, explanation } = parseExplanation(res.text);
     overlay.setPopupMeaning(explanation, senses);
   } else {
-    overlay.setPopupError(res.error);
+    const show = (error: string, action?: PopupAction): void => overlay.setPopupError(error, action);
+    show(res.error, loginAction(res, overlay, popupToken, show, retry));
   }
 }

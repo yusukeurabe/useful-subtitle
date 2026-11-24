@@ -126,3 +126,70 @@ it('字幕一文が空なら和訳を頼まず下段も出さない', async () =
   const shadow = document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
   expect(shadow.querySelector<HTMLDivElement>('.popup .sentence')!.hidden).toBe(true);
 });
+
+const AUTH = { ok: false, code: 'AUTH', error: 'Claude Code で利用する Claude Pro アカウントにログインし直してください。' };
+const popup = () => document.getElementById('useful-subtitle-overlay')!.shadowRoot!;
+async function flush(): Promise<void> { for (let i = 0; i < 5; i++) await Promise.resolve(); }
+
+it('AUTH エラーでログインボタンを出し、ログイン成功後に意味引きをやり直す', async () => {
+  const lookup = runLookup(overlay, settings, 'word', 'Video A', anchor());
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1](AUTH);
+  pending[2](AUTH);
+  await lookup; await flush();
+  const btn = popup().querySelector<HTMLButtonElement>('.body .popup-action')!;
+  expect(btn.textContent).toBe('ブラウザでログイン');
+  expect(popup().querySelector('.sentence .popup-action')).not.toBeNull();
+  btn.click();
+  expect(request).toHaveBeenLastCalledWith({ type: 'login' });
+  const waiting = popup().querySelector<HTMLButtonElement>('.body .popup-action')!;
+  expect(waiting.textContent).toBe('ブラウザでログインを完了してください…');
+  expect(waiting.disabled).toBe(true);
+  pending[3]({ ok: true, text: 'OK' });
+  await flush();
+  // やり直し: lookupWord / explainSelection / explainSentence をもう一度送る。
+  expect(request.mock.calls.slice(4).map(([req]) => req.type)).toEqual(['lookupWord', 'explainSelection', 'explainSentence']);
+  pending[4]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[5]({ ok: true, text: 'Fresh explanation' });
+  pending[6]({ ok: true, text: '訳: 新しい和訳' });
+  await flush();
+  expect(popup().querySelector('.body')!.textContent).toContain('Fresh explanation');
+});
+
+it('ログイン失敗でメッセージとボタンを出し直す', async () => {
+  const lookup = runLookup(overlay, settings, 'word', 'Video A', anchor());
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1](AUTH);
+  pending[2]({ ok: true, text: '訳: 和訳' });
+  await lookup; await flush();
+  popup().querySelector<HTMLButtonElement>('.body .popup-action')!.click();
+  pending[3]({ ok: false, code: 'AUTH', error: 'ログインできませんでした。もう一度お試しください。' });
+  await flush();
+  expect(popup().querySelector('.body')!.textContent).toContain('ログインできませんでした。もう一度お試しください。');
+  const again = popup().querySelector<HTMLButtonElement>('.body .popup-action')!;
+  expect(again.textContent).toBe('ブラウザでログイン');
+  expect(again.disabled).toBe(false);
+  expect(request).toHaveBeenCalledTimes(4);
+});
+
+it('ログイン中にポップアップを閉じたら、成功してもやり直さない', async () => {
+  const lookup = runLookup(overlay, settings, 'word', 'Video A', anchor());
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1](AUTH);
+  pending[2](AUTH);
+  await lookup; await flush();
+  popup().querySelector<HTMLButtonElement>('.body .popup-action')!.click();
+  overlay.hidePopup();
+  pending[3]({ ok: true, text: 'OK' });
+  await flush();
+  expect(request).toHaveBeenCalledTimes(4);
+});
+
+it('AUTH 以外のエラーにはボタンを出さない', async () => {
+  const lookup = runLookup(overlay, settings, 'word', 'Video A', anchor());
+  pending[0]({ ok: true, kind: 'word', ipa: null, audioUrl: null });
+  pending[1]({ ok: false, code: 'NETWORK', error: '接続が切れました' });
+  pending[2]({ ok: false, code: 'NETWORK', error: '接続が切れました' });
+  await lookup; await flush();
+  expect(popup().querySelector('.popup-action')).toBeNull();
+});
