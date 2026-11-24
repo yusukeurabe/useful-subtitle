@@ -175,6 +175,18 @@ describe('native scheduler', () => {
     h.ports[0]!.reply({ id: sent.id, ok: true, text: 'OK' });
     await expect(login).resolves.toBeUndefined();
   });
+  it('login 実行中に接続プログラムが切れても利用停止を掛けない（ログインの失敗として扱う）', async () => {
+    const h = harness();
+    const login = h.client.login();
+    void login.catch(() => {});
+    expect(h.ports[0]!.postMessage.mock.lastCall![0]).toMatchObject({ action: 'login' });
+    h.ports[0]!.lost();
+    await expect(login).rejects.toMatchObject({ code: 'AUTH', message: 'ログインできませんでした。もう一度お試しください。' });
+    const next = h.send('next', 1, 'interactive');
+    vi.advanceTimersByTime(750);
+    expect(h.ports.at(-1)!.postMessage.mock.lastCall![0].user).toBe('next');
+    h.finish(); await expect(next).resolves.toBe('ok');
+  });
   it('reset cancels a pending login with CANCELED', async () => {
     const h = harness();
     const login = h.client.login();

@@ -81,7 +81,8 @@ export function createNativeClient(connect = () => chrome.runtime.connectNative(
   const reset = (code: ErrorCode = 'CANCELED'): void => {
     clearTimeout(handover);
     handover = undefined;
-    if (code !== 'CANCELED') coolDown(code);
+    // ログイン中の切断などはログインの失敗として扱い、利用停止（60 秒）は掛けない。
+    if (code !== 'CANCELED' && !isLogin(active)) coolDown(code);
     close();
     if (active) active.reject(failureFor(active, code));
     active = undefined;

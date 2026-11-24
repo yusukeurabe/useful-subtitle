@@ -82,6 +82,8 @@ function classify(text) {
   return 'UNKNOWN';
 }
 export const LOGIN_TIMEOUT_MS = 240000;
+/** ログイン後の auth status 確認の持ち時間。ログインの締め切りとは別に取る（締め切り間際の許可を失敗扱いにしない）。 */
+const LOGIN_STATUS_TIMEOUT_MS = 15000;
 
 /** 依頼の検証・設定の組み立て・管理ポリシー検査を行う。使えない環境なら null を返す。 */
 function prepare(request, options, timeoutMs) {
@@ -92,12 +94,13 @@ function prepare(request, options, timeoutMs) {
   if (config.env.USER && /^[a-zA-Z0-9._-]+$/.test(config.env.USER)) policyFiles.push(`/Library/Managed Preferences/${config.env.USER}/com.anthropic.claudecode.plist`);
   if (!isAbsolute(config.claudePath ?? '') || !isAbsolute(config.cwd ?? '') || !isAbsolute(config.nodePath ?? '') || policyFiles.some(file => (config.policyExists ?? existsSync)(file))) return null;
   const deadline = Date.now() + config.timeoutMs;
-  const invoke = (args, input) => execute(config.claudePath, args, input, config, Math.max(1, deadline - Date.now()));
+  // budgetMs を渡すと、全体の締め切りではなくその呼び出し専用の持ち時間で打ち切る。
+  const invoke = (args, input, budgetMs) => execute(config.claudePath, args, input, config, budgetMs ?? Math.max(1, deadline - Date.now()));
   return { config, invoke };
 }
 /** 公式 CLI の auth status で、Claude サブスク（Pro/Max）でログイン済みかを確かめる。 */
-async function isSubscribed(invoke) {
-  const auth = await invoke([...isolation, 'auth', 'status', '--json'], '');
+async function isSubscribed(invoke, budgetMs) {
+  const auth = await invoke([...isolation, 'auth', 'status', '--json'], '', budgetMs);
   let status;
   try { status = JSON.parse(auth.stdout); } catch { return false; }
   return auth.exitCode === 0 && status.loggedIn === true && status.authMethod === 'claude.ai' && status.apiProvider === 'firstParty'
@@ -134,7 +137,7 @@ export async function runLogin(request, options = {}) {
     const { invoke } = prepared;
     const login = await invoke([...isolation, 'auth', 'login', '--claudeai'], '');
     if (login.exitCode !== 0) return failure(id, 'AUTH');
-    if (!(await isSubscribed(invoke))) return failure(id, 'AUTH');
+    if (!(await isSubscribed(invoke, LOGIN_STATUS_TIMEOUT_MS))) return failure(id, 'AUTH');
     return { id, ok: true, text: 'OK' };
   } catch (error) { return failure(id, MESSAGES[error?.code] ? error.code : 'UNKNOWN'); }
 }

@@ -8,31 +8,59 @@ import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
 const LOGIN_LABEL = 'ブラウザでログイン';
 const LOGIN_WAITING = 'ブラウザでログインを完了してください…';
 
+type ShowError = (message: string, action?: PopupAction) => void;
+/** ログインの案内を出せる場所（上段の単語解説/下段の字幕一文）。error はその段に出しているエラー文。 */
+interface LoginSection {
+  show: ShowError;
+  error: string;
+}
+interface LoginOffer {
+  /** エラーを出す。ボタンを出せる条件（サブスク接続の AUTH）ならログインボタンも添える。 */
+  showError(res: ErrorResponse, show: ShowError): void;
+}
+
 /**
- * AUTH エラーのときだけ「ブラウザでログイン」ボタンを作る。押すと公式 CLI のログインを起動し、
- * 成功してポップアップがまだ同じなら retry（意味引きのやり直し）を呼ぶ。show はボタンを出す場所（上段/下段）。
+ * 1 回の意味引き（ポップアップ）ごとのログイン状態。上段・下段のボタンで共有し、
+ * どちらを押してもログイン依頼は 1 回だけ・両段そろって待機表示にする。
+ * ボタンは Claude サブスク接続（enabled）の AUTH エラーのときだけ出す（API キーの AUTH はキーの誤りなので出さない）。
+ * 成功してポップアップがまだ同じなら retry（意味引きのやり直し）を 1 回だけ呼ぶ。
  */
-function loginAction(
-  res: ErrorResponse,
-  overlay: Overlay,
-  popupToken: number,
-  show: (message: string, action?: PopupAction) => void,
-  retry: () => void,
-): PopupAction | undefined {
-  if (res.code !== 'AUTH') return undefined;
-  const action: PopupAction = {
-    label: LOGIN_LABEL,
-    onClick: () => {
-      show(res.error, { label: LOGIN_WAITING });
-      void sendRequest({ type: 'login' }).then((login) => {
-        if (!overlay.isPopupCurrent(popupToken)) return;
-        if (login.ok) retry();
-        // ログイン失敗は code が何であっても（CANCELED / UNKNOWN 等）ボタンを出し直す。
-        else show(login.error, loginAction({ ...login, code: 'AUTH' }, overlay, popupToken, show, retry));
-      });
+function createLoginOffer(overlay: Overlay, popupToken: number, enabled: boolean, retry: () => void): LoginOffer {
+  const sections: LoginSection[] = [];
+  let inProgress = false;
+  const waiting = (): PopupAction => ({ label: LOGIN_WAITING });
+  // code を見ずにボタンを作る。出すかどうかは呼び出し側で決める。
+  const button = (): PopupAction => ({ label: LOGIN_LABEL, onClick: start });
+  function start(): void {
+    if (inProgress) return;
+    inProgress = true;
+    for (const section of sections) section.show(section.error, waiting());
+    void sendRequest({ type: 'login' }).then((login) => {
+      inProgress = false;
+      if (!overlay.isPopupCurrent(popupToken)) return;
+      if (login.ok) {
+        retry();
+        return;
+      }
+      // ログインの失敗（AUTH）と取り消し（CANCELED）だけ押し直せるようにする。
+      // 拡張の再読み込み（CONTEXT_INVALIDATED）などはボタンを押しても直らないので文言だけ出す。
+      const again = login.code === 'AUTH' || login.code === 'CANCELED';
+      for (const section of sections) {
+        section.error = login.error;
+        section.show(login.error, again ? button() : undefined);
+      }
+    });
+  }
+  return {
+    showError(res, show) {
+      if (!enabled || res.code !== 'AUTH') {
+        show(res.error);
+        return;
+      }
+      sections.push({ show, error: res.error });
+      show(res.error, inProgress ? waiting() : button());
     },
   };
-  return action;
 }
 
 /**
@@ -44,7 +72,7 @@ async function loadSentenceMeaning(
   sentence: string,
   neighbors: CaptionNeighbors,
   popupToken: number,
-  retry: () => void,
+  login: LoginOffer,
 ): Promise<void> {
   if (!sentence.trim()) return;
   overlay.setPopupSentence(null);
@@ -54,8 +82,7 @@ async function loadSentenceMeaning(
     const { translation, explanation } = parseSentenceMeaning(res.text);
     overlay.setPopupSentence({ ok: true, translation, explanation });
   } else {
-    const show = (error: string, action?: PopupAction): void => overlay.setPopupSentence({ ok: false, error, action });
-    show(res.error, loginAction(res, overlay, popupToken, show, retry));
+    login.showError(res, (error, action) => overlay.setPopupSentence({ ok: false, error, action }));
   }
 }
 
@@ -83,14 +110,14 @@ export async function runLookup(
   const retry = (): void => {
     void runLookup(overlay, settings, selection, sentence, anchor, neighbors);
   };
-  void loadSentenceMeaning(overlay, sentence, neighbors, popupToken, retry);
+  const login = createLoginOffer(overlay, popupToken, settings.provider === 'claude-subscription', retry);
+  void loadSentenceMeaning(overlay, sentence, neighbors, popupToken, login);
   const res = await word;
   if (!overlay.isPopupCurrent(popupToken)) return;
   if (res.ok) {
     const { senses, explanation } = parseExplanation(res.text);
     overlay.setPopupMeaning(explanation, senses);
   } else {
-    const show = (error: string, action?: PopupAction): void => overlay.setPopupError(error, action);
-    show(res.error, loginAction(res, overlay, popupToken, show, retry));
+    login.showError(res, (error, action) => overlay.setPopupError(error, action));
   }
 }
