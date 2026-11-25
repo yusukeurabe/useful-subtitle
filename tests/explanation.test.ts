@@ -192,6 +192,31 @@ describe('parseExplanation', () => {
     const r = parseExplanation('例: an incremental increase\n説明: x');
     expect(r.senses).toEqual([]);
   });
+
+  // distillation で、AI が考えた過程と品詞行を1行にまとめて返し、考えた過程が訳語として表示された。
+  it('drops reasoning written before the POS code on the same line', () => {
+    const r = parseExplanation(
+      '名詞として辞書にある品詞は noun のみ。候補 [1] は蒸留・[2] は要約・要点の抽出。文脈では「all the worst problems の要約」なので N[U]: 蒸留・抽出・要約 | the process of distilling\n説明: 文脈ではこう。',
+    );
+    expect(r.senses).toEqual([{ pos: 'N[U]', gloss: '蒸留・抽出・要約', definition: 'the process of distilling' }]);
+    expect(r.explanation).toBe('文脈ではこう。');
+  });
+
+  it('never shows a reasoning sentence as a gloss', () => {
+    const r = parseExplanation(
+      '名詞として辞書にある品詞は noun のみ。候補 [1] は蒸留・[2] は要約。文脈では要約の意味 | the process of distilling\n説明: 文脈ではこう。',
+    );
+    expect(r.senses).toEqual([]);
+    expect(r.explanation).toBe('文脈ではこう。');
+  });
+
+  it('ignores reasoning lines placed before the POS lines', () => {
+    const r = parseExplanation(
+      '名詞として辞書にある品詞は noun のみ。候補 [2] が文脈に合う。\nN[U]: 蒸留・要約 | the process of distilling\n説明: 文脈ではこう。',
+    );
+    expect(r.senses).toEqual([{ pos: 'N[U]', gloss: '蒸留・要約', definition: 'the process of distilling' }]);
+    expect(r.explanation).toBe('文脈ではこう。');
+  });
 });
 
 describe('parseSentenceMeaning', () => {

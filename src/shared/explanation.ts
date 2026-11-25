@@ -69,6 +69,38 @@ function toPosCode(label: string): string | null {
   if (alias) return alias;
   return POS_CODE.test(label) ? label : null;
 }
+/**
+ * 行の途中に出てくる品詞コード＋コロン（プロンプトで指定したコードのみ）。
+ * AI が考えた過程と品詞行を1行にまとめて返すことがある（distillation で
+ * 「名詞として辞書にある品詞は noun のみ。…なので N[U]: 蒸留・要約 | …」）。
+ */
+const EMBEDDED_POS = /(?:N|V)\[[A-Za-z/]+\]\s*[:：]|(?:Adj|Adv|Pron|Prep|Conj|Det|Int)\.\s*[:：]/g;
+
+/** 訳語は単語の羅列なので句点を含まない。含むなら AI が考えた過程の文なので訳語として扱わない。 */
+function looksLikeSentence(gloss: string): boolean {
+  return /[。．]/.test(gloss);
+}
+
+/**
+ * 1 行を「品詞コード + 訳 (+ 英語の定義)」として読む。読めなければ null。
+ * 行頭がラベルの通常の形に加え、考えた過程の後ろに品詞コードが続く行も、品詞コード以降だけを読む。
+ */
+function readPosLine(line: string): WordSense | null {
+  const m = line.match(LABELED_LINE);
+  if (m) {
+    const pos = toPosCode(cleanLabel(m[1]));
+    if (pos) {
+      const { gloss, definition } = splitGlossAndDefinition(m[2]);
+      if (gloss && !looksLikeSentence(gloss)) return definition ? { pos, gloss, definition } : { pos, gloss };
+    }
+  }
+  // 行の途中の最後の品詞コードから読み直す（前にある考えた過程は捨てる）。
+  const hits = [...line.matchAll(EMBEDDED_POS)];
+  const last = hits[hits.length - 1];
+  if (!last || last.index === undefined || last.index === 0) return null;
+  return readPosLine(line.slice(last.index));
+}
+
 /** フレーズ・旧キャッシュ用の単一訳ラベル（訳: / 訳語:）。 */
 const GLOSS_LINE = /^\s*訳(?:語)?\s*[:：]\s*(.+?)\s*$/;
 /** 説明ラベル行（全角コロン可）。 */
@@ -114,12 +146,9 @@ export function parseExplanation(raw: string): ParsedExplanation {
   const consumed = new Set<number>();
 
   headLines.forEach((line, i) => {
-    const m = line.match(LABELED_LINE);
-    if (!m) return;
-    const pos = toPosCode(cleanLabel(m[1]));
-    if (!pos) return;
-    const { gloss, definition } = splitGlossAndDefinition(m[2]);
-    if (!gloss) return;
+    const sense = readPosLine(line);
+    if (!sense || !sense.pos) return;
+    const { pos, gloss, definition } = sense;
     consumed.add(i);
     // LLM が同じ品詞行を繰り返すことがある（then で "Adv.: …" が2行出た）。
     // 同じ品詞は1行にまとめ、訳語は重複を除いて最大3つに丸める。英語の定義は最初のものを残す。
@@ -155,7 +184,7 @@ export function parseExplanation(raw: string): ParsedExplanation {
       const label = m ? cleanLabel(m[1]) : '';
       const body = m ? m[2] : headLines[i].replace(/^\s*(?:[-・•]\s*|\*\s+)?/, '');
       const { gloss, definition } = splitGlossAndDefinition(body);
-      if (gloss) {
+      if (gloss && !looksLikeSentence(gloss)) {
         const pos = label && label.length <= 12 ? label : null;
         senses.push(definition ? { pos, gloss, definition } : { pos, gloss });
         consumed.add(i);
