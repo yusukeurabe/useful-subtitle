@@ -1062,3 +1062,42 @@ describe('createOverlay — エラー時の操作ボタン', () => {
     expect(shadow().querySelector('.sentence .popup-action')!.textContent).toBe('ブラウザでログイン');
   });
 });
+
+describe('createOverlay — ポップアップの文章を範囲選択できる', () => {
+  let overlay: Overlay | null = null;
+  beforeEach(() => {
+    document.body.replaceChildren();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+  });
+  afterEach(() => {
+    overlay?.destroy();
+    overlay = null;
+  });
+
+  it('ポップアップは user-select: text で、ボタン類だけ選択対象から外す', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    const css = [...shadow().querySelectorAll('style')].map((s) => s.textContent ?? '').join('\n');
+    const popupRule = css.match(/\n\.popup \{[^}]*\}/)?.[0] ?? '';
+    expect(popupRule).toMatch(/(^|[\s;])user-select: text;/);
+    expect(css).toMatch(/\.popup \.close, \.popup button \{[^}]*user-select: none;/);
+  });
+
+  it('ポップアップ内のマウス操作は外側（プレイヤー）へ伝わらず、ポップアップも閉じない', () => {
+    overlay = createOverlay(noopCallbacks(), { bottomPercent: 10, onBottomChange: () => {} });
+    overlay.openPopup(new DOMRect(100, 100, 50, 20), 'staircase');
+    overlay.setPopupMeaning('階段のこと。', []);
+    const outside: string[] = [];
+    for (const type of ['mousedown', 'pointerdown', 'click', 'dblclick', 'selectstart']) {
+      document.body.addEventListener(type, () => outside.push(type));
+    }
+    const body = shadow().querySelector<HTMLElement>('.popup .body')!;
+    body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
+    body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    body.dispatchEvent(new Event('selectstart', { bubbles: true, composed: true }));
+    body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }));
+    body.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+    body.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, composed: true }));
+    expect(outside).toEqual([]);
+    expect(shadow().querySelector('.popup')).not.toBeNull();
+  });
+});

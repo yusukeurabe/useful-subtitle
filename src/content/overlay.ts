@@ -112,7 +112,12 @@ const STYLES = `
   padding: 12px 28px 12px 14px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   font-size: 14px; line-height: 1.6; pointer-events: auto;
   font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  /* 解説の文章をドラッグで範囲選択・コピーできるようにする。user-select は親の none を
+     引き継ぐため（YouTube の #movie_player や Prime のプレイヤーは none）、明示的に text へ戻す。 */
+  -webkit-user-select: text; user-select: text; cursor: auto;
 }
+/* ×・ボタン類は押したときに文字が選択されないよう選択対象から外す。 */
+.popup .close, .popup button { -webkit-user-select: none; user-select: none; }
 .popup .sel { margin-bottom: 4px; }
 .popup .sel .sel-word { font-weight: 700; color: #8ab4ff; }
 .popup .senses {
@@ -592,6 +597,14 @@ export function createOverlay(callbacks: OverlayCallbacks, options: OverlayOptio
     popup = document.createElement('div');
     popup.className = 'popup';
     if (youtube) popup.style.position = 'absolute';
+    // ポップアップ内のマウス操作（文字のドラッグ選択・ダブルクリックでの単語選択）を
+    // 外側のプレイヤーへ伝えない。伝わると、プレイヤー側が mousedown/selectstart を
+    // preventDefault して選択できなかったり、ダブルクリックで全画面が切り替わったりする
+    // （ホストは YouTube では #movie_player の中、Prime の全画面ではプレイヤーの中にある）。
+    // 文書全体の capture リスナー（外側クリックで閉じる・単語ドラッグの終了）は先に動くので影響しない。
+    for (const type of ['mousedown', 'pointerdown', 'click', 'dblclick', 'selectstart'] as const) {
+      popup.addEventListener(type, (e) => e.stopPropagation());
+    }
     shadow.appendChild(popup);
     return popup;
   };
