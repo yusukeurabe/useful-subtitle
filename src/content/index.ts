@@ -12,6 +12,7 @@ import { fetchWordInfo } from './word';
 import { findVideo, forwardVideo, pauseVideo, resumeVideo, rewindVideo, seekVideo, togglePlayVideo } from './videoControl';
 import { createHoverPause } from './hoverPause';
 import { createCaptionTimeline } from './captionContext';
+import { createLineStartTracker } from './lineStart';
 import { extractContentId, createTitleSwitchDetector } from './contentIdentity';
 import { sendRequest } from '../shared/messages';
 import { parseExplanation, parseSentenceMeaning } from '../shared/explanation';
@@ -42,6 +43,9 @@ async function main(): Promise<void> {
   const timeline = createCaptionTimeline();
   // いま画面に出ている字幕が出た時刻（前後の字幕を引くキー）。
   let currentLineTime = 0;
+  // 字幕の頭から再生する▶の戻り先。書き足し・描き直しで字幕が通知し直されても、
+  // 字幕が最初に出た時刻を保つ（通知の瞬間を使うと字幕の途中へ戻ってしまう）。
+  const lineStart = createLineStartTracker();
   let overlay!: Overlay;
   overlay = createOverlay(
     {
@@ -135,6 +139,7 @@ async function main(): Promise<void> {
       generation++;
       notifyContextChanged();
       timeline.clear();
+      lineStart.reset();
       clearHistory();
       cancelTranslation();
       overlay.clearLine();
@@ -195,8 +200,13 @@ async function main(): Promise<void> {
       beforeAdText = '';
       // 別の動画の字幕を前後の字幕として混ぜない。
       timeline.clear();
+      lineStart.reset();
     }
-    else if (context.isAd && !wasAd) beforeAdText = currentText;
+    else if (context.isAd && !wasAd) {
+      beforeAdText = currentText;
+      // 広告明けの字幕に、広告前の字幕の頭を引き継がない。
+      lineStart.reset();
+    }
     wasAd = context.isAd;
     wasActive = context.active;
     previousId = context.contentId;
@@ -205,6 +215,7 @@ async function main(): Promise<void> {
     // 新作品の最初の字幕が履歴の先頭行になる。
     maybeResetForNewTitle();
     if (raw === null) {
+      lineStart.hide(findVideo()?.currentTime ?? NaN);
       cancelTranslation();
       currentText = '';
       overlay.clearLine(context.captionsOff);
@@ -214,12 +225,12 @@ async function main(): Promise<void> {
     const resumedText = beforeAdText;
     beforeAdText = '';
     currentText = text;
-    // 字幕が現れた瞬間の動画位置を一度だけ読み、overlay の▶（字幕の頭から再生）と
-    // 履歴記録の両方で同じ値を使う（クリック先がブレないように）。
+    // 字幕が現れた瞬間の動画位置を一度だけ読む（履歴記録・前後の字幕のキー）。
     const videoTime = findVideo()?.currentTime ?? 0;
     currentLineTime = videoTime;
     timeline.add(text, videoTime);
-    overlay.renderLine(text, tokenizeLine(text), videoTime);
+    // ▶の戻り先は、この字幕の続きなら最初に出た時刻を引き継いだ「字幕の頭」。
+    overlay.renderLine(text, tokenizeLine(text), lineStart.show(text, videoTime));
     syncPlayToggle();
 
     // 巻き戻して記録済み範囲を再生し直している間は履歴へ重複記録しない。
