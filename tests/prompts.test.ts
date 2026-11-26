@@ -36,6 +36,12 @@ describe('buildExplanationPrompt の辞書の品詞', () => {
     expect(system).toMatch(/文脈で別の品詞のように使われていても/);
   });
 
+  it('考えた過程を書かず、1行目から品詞行を書くよう指示する（distillation で過程の文が表示された不具合）', () => {
+    const { system } = buildExplanationPrompt('distillation', 'a', 'ja', undefined, ['noun']);
+    expect(system).toMatch(/考えた過程/);
+    expect(system).toMatch(/1行目から品詞行/);
+  });
+
   it('フレーズには辞書の品詞を渡さない', () => {
     const { system } = buildExplanationPrompt('break a leg', 'a', 'ja', undefined, ['noun']);
     expect(system).not.toContain('辞書に載っている品詞:');
