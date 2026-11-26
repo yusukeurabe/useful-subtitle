@@ -46,6 +46,13 @@ async function main(): Promise<void> {
   // 字幕の頭から再生する▶の戻り先。書き足し・描き直しで字幕が通知し直されても、
   // 字幕が最初に出た時刻を保つ（通知の瞬間を使うと字幕の途中へ戻ってしまう）。
   const lineStart = createLineStartTracker();
+  // 巻き戻し・シークバー・字幕リストのクリックなどで本編がシークされたら知らせる。
+  // 字幕の途中に着地すると字幕は途中から出るので、覚えている頭の時刻を使わせるため。
+  // メディアイベントはバブリングしないため document のキャプチャ段で受ける。
+  document.addEventListener('seeking', (e) => {
+    const video = findVideo();
+    if (video && e.target === video) lineStart.seeked(video.currentTime);
+  }, true);
   let overlay!: Overlay;
   overlay = createOverlay(
     {
@@ -139,7 +146,7 @@ async function main(): Promise<void> {
       generation++;
       notifyContextChanged();
       timeline.clear();
-      lineStart.reset();
+      lineStart.clear();
       clearHistory();
       cancelTranslation();
       overlay.clearLine();
@@ -200,7 +207,7 @@ async function main(): Promise<void> {
       beforeAdText = '';
       // 別の動画の字幕を前後の字幕として混ぜない。
       timeline.clear();
-      lineStart.reset();
+      lineStart.clear();
     }
     else if (context.isAd && !wasAd) {
       beforeAdText = currentText;
