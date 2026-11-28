@@ -36,6 +36,10 @@ describe('isSingleWord', () => {
     expect(isSingleWord("don't")).toBe(true);
     expect(isSingleWord('well-known')).toBe(true);
   });
+  it('true for an ampersand abbreviation like R&D', () => {
+    expect(normalizeWord('R&D,')).toBe('r&d');
+    expect(isSingleWord('R&D')).toBe(true);
+  });
   it('false for a phrase', () => {
     expect(isSingleWord('break a leg')).toBe(false);
   });

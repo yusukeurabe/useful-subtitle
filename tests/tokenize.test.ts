@@ -32,6 +32,16 @@ describe('tokenizeLine', () => {
     expect(words('a well-known fact')).toEqual(['a', 'well-known', 'fact']);
   });
 
+  it('keeps an ampersand abbreviation as a single word', () => {
+    expect(words('Our R&D team')).toEqual(['Our', 'R&D', 'team']);
+    expect(words('AT&T and Q&A')).toEqual(['AT&T', 'and', 'Q&A']);
+  });
+
+  it('treats a spaced ampersand as a separator', () => {
+    expect(words('rock & roll')).toEqual(['rock', 'roll']);
+    expect(words('R& D')).toEqual(['R', 'D']);
+  });
+
   it('treats punctuation as non-word tokens', () => {
     expect(tokenizeLine('Hi, there!')).toEqual([
       { text: 'Hi', isWord: true },
