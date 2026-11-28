@@ -4,8 +4,9 @@ export interface Token {
   isWord: boolean;
 }
 
-// 英単語（内部のアポストロフィ・ハイフンを含む。例: don't, well-known）。
-const WORD_RE = /[A-Za-z]+(?:['’\-][A-Za-z]+)*/g;
+// 英単語（内部のアポストロフィ・ハイフン・& を含む。例: don't, well-known, R&D, AT&T）。
+// & は前後が英字で挟まれているときだけ語の一部にする（"rock & roll" の & は区切り）。
+const WORD_RE = /[A-Za-z]+(?:['’\-&][A-Za-z]+)*/g;
 
 /**
  * 字幕一文を「単語」と「それ以外（空白・記号）」のトークン列に分解する。
